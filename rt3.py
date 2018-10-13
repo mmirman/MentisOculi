@@ -49,9 +49,6 @@ class vec3():
         r.x[cond] = self.x
         r.y[cond] = self.y
         r.z[cond] = self.z
-        #tr.place(r.x, cond, self.x)
-        #tr.place(r.y, cond, self.y)
-        #tr.place(r.z, cond, self.z)
         return r
 
 rgb = vec3
@@ -122,7 +119,7 @@ class Sphere:
         N = (M - self.c) * (1. / self.r)        # normal
         toL = (L - M).norm()                    # direction to light
         toO = (E - M).norm()                    # direction to ray origin
-        nudged = M + N * .0001                  # M nudged to avoid itself
+        nudged = M + N * .002                   # M nudged to avoid itself
 
         # Shadow: find if the point is shadowed or not.
         # This amounts to finding out if M can see the light
