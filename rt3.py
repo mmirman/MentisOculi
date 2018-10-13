@@ -59,6 +59,8 @@ SUBSAMPLE = 4
 L = vec3(5, 5., -10)        # Point light position
 E = vec3(0., 0.35, -1.)     # Eye position
 FARAWAY = 1.0e36            # an implausibly huge distance
+MAX_BOUNCE = 3
+NUDGE = 0.002
 
 def raytrace(O, D, scene, bounce = 0):
     # O is the ray origin, D is the normalized ray direction
@@ -70,7 +72,7 @@ def raytrace(O, D, scene, bounce = 0):
     color = rgb(0, 0, 0)
     for (s, d) in zip(scene, distances):
         hit = (nearest != FARAWAY) & (d == nearest)
-        if tr.sum(hit).data > 0: # any which is stupid, because some pixel will hit something.
+        if tr.sum(hit).data > 0:
             Oc = O.extract(hit)
             dc = extract(hit, d)
             Dc = D.extract(hit)
@@ -115,15 +117,17 @@ class Sphere:
         return self.diffuse
 
     def light(self, O, D, d, scene, bounce):
-        M = (O + D * d)                         # intersection point
+        # D is direction
+        # O is previous origin
+        M = (O + D * d)                         # new intersection point
         N = (M - self.c) * (1. / self.r)        # normal
         toL = (L - M).norm()                    # direction to light
         toO = (E - M).norm()                    # direction to ray origin
-        nudged = M + N * .002                   # M nudged to avoid itself
+        newO = M + N * NUDGE                    # M nudged to avoid itself
 
         # Shadow: find if the point is shadowed or not.
         # This amounts to finding out if M can see the light
-        light_distances = [s.intersect(nudged, toL) for s in scene]
+        light_distances = [s.intersect(newO, toL) for s in scene]
         light_nearest = reduce(tr.min, light_distances)
         seelight = (light_distances[scene.index(self)] == light_nearest).float()
 
@@ -136,9 +140,9 @@ class Sphere:
         color += x
 
         # Reflection
-        if bounce < 2:
-            rayD = (D - N * 2 * D.dot(N)).norm()
-            color += raytrace(nudged, rayD, scene, bounce + 1) * self.mirror
+        if bounce < MAX_BOUNCE:
+            rayD = (D - N * 2 * D.dot(N)).norm()  # reflection
+            color += raytrace(newO, rayD, scene, bounce + 1) * self.mirror
 
         # Blinn-Phong shading (specular)
         phong = N.dot((toL + toO).norm())
