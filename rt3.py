@@ -1,10 +1,12 @@
 from PIL import Image
 import numpy as np
 import torch as tr
+from helpers import *
 
 import time
 import numbers
 from functools import reduce
+
 
 def extract(cond, x):
     if isinstance(x, numbers.Number):
@@ -37,7 +39,7 @@ class vec3():
         return self.dot(self)
     def norm(self):
         mag = tr.sqrt(abs(self))
-        return self * (1.0 / tr.where(mag == 0, tr.FloatTensor(1), mag))
+        return self * (1.0 / tr.where(mag == 0, dtype(1), mag))
     def components(self):
         return (self.x, self.y, self.z)
     def extract(self, cond):
@@ -45,15 +47,15 @@ class vec3():
                     extract(cond, self.y),
                     extract(cond, self.z))
     def place(self, cond):
-        r = vec3(tr.zeros(cond.shape), tr.zeros(cond.shape), tr.zeros(cond.shape))
+        r = vec3(zeros(cond.shape), zeros(cond.shape), zeros(cond.shape))
         r.x[cond] = self.x
         r.y[cond] = self.y
         r.z[cond] = self.z
         return r
 
 rgb = vec3
-OVERSAMPLE = 2
-SUBSAMPLE = 4
+OVERSAMPLE = 4
+SUBSAMPLE = 8
 (w, h) = (400 * OVERSAMPLE, 300 * OVERSAMPLE)         # Screen size
 
 L = vec3(5, 5., -10)        # Point light position
@@ -68,7 +70,7 @@ def raytrace(O, D, scene, bounce = 0):
     # bounce is the number of the bounce, starting at zero for camera rays
 
     distances = [s.intersect(O, D) for s in scene]
-    nearest = reduce(lambda x,y: tr.min(tr.FloatTensor(x),tr.FloatTensor(y)), distances)
+    nearest = reduce(lambda x,y: tr.min(dtype(x),dtype(y)), distances)
     color = rgb(0, 0, 0)
     for (s, d) in zip(scene, distances):
         hit = (nearest != FARAWAY) & (d == nearest)
@@ -86,13 +88,13 @@ def pathtrace(origin, S, pixels, scene):
     for i in range(SUBSAMPLE):
         x_sz = (S[2] - S[0]) / w
         y_sz = (S[3] - S[1]) / h
-        x_diffs = tr.rand(pixels.x.shape) * x_sz
-        y_diffs = tr.rand(pixels.y.shape) * y_sz
+        x_diffs = rand(pixels.x.shape) * x_sz
+        y_diffs = rand(pixels.y.shape) * y_sz
         pixel_mod = pixels + vec3(x_diffs, y_diffs, 0)
         sub_img = raytrace(origin, (pixel_mod - origin).norm(), scene, bounce = 0) 
         img = sub_img + img
-        save_img(sub_img, "sub_img"+str(i)+".png")
-        save_img(img / (i + 1), "img"+str(i)+".png")
+        #save_img(sub_img, "sub_img"+str(i)+".png")
+        #save_img(img / (i + 1), "img"+str(i)+".png")
     return img / SUBSAMPLE
 
 class Sphere:
@@ -111,7 +113,7 @@ class Sphere:
         h1 = (-b + sq) / 2
         h = tr.where((h0 > 0) & (h0 < h1), h0, h1)
         pred = (disc > 0) & (h > 0)
-        return tr.where(pred, h, tr.ones_like(h) * FARAWAY)
+        return tr.where(pred, h, ones_like(h) * FARAWAY)
 
     def diffusecolor(self, M):
         return self.diffuse
@@ -162,14 +164,16 @@ scene = [
     CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.75, .75, .75), 0),
     ]
 
+t0 = time.time()
+
 r = float(w) / h
 # Screen coordinates: x0, y0, x1, y1.
 S = (-1., 1. / r + .25, 1., -1. / r + .25)
-x = tr.FloatTensor(np.tile(np.linspace(S[0], S[2], w), h))
-y = tr.FloatTensor(np.repeat(np.linspace(S[1], S[3], h), w))
+x =  linspace(S[0], S[2], w).repeat(h)
+y = linspace(S[1], S[3], h).view(-1,1).expand(h,w).contiguous().view(-1)
 
-t0 = time.time()
 Q = vec3(x, y, 0)
+
 color = pathtrace(E, S, Q, scene)
 print("Took", time.time() - t0)
 
