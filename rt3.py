@@ -10,7 +10,7 @@ from functools import reduce
 
 
 OVERSAMPLE = 4
-SUBSAMPLE = 16
+SUBSAMPLE = 4
 WIDTH = 400
 HEIGHT = 300
 (w, h) = (WIDTH * OVERSAMPLE, HEIGHT * OVERSAMPLE)
@@ -90,12 +90,13 @@ def random_spherical(u, v):
     return vec3(x, y, phi.cos())
 
 class Sphere:
-    def __init__(self, center, r, diffuse, mirror = 0.5):
+    def __init__(self, center, r, diffuse, mirror = 0.5, phong_pow = 50, phong_col = rgb(1, 1, 1)):
         self.c = center
         self.r = r
         self.diffuse = diffuse
         self.mirror = mirror
-
+        self.phong_pow = phong_pow
+        self.phong_col = phong_col
     def intersect(self, O, D):
         b = 2 * D.dot(O - self.c)
         c = abs(self.c) + abs(O) - 2 * self.c.dot(O) - (self.r * self.r)
@@ -148,7 +149,7 @@ class Sphere:
 
         # Blinn-Phong shading (specular)
         phong = N.dot((toL + toO).norm())
-        color += rgb(1, 1, 1) * tr.pow(tr.clamp(phong, 0, 1), 50) * seelight
+        color += self.phong_col * tr.pow(tr.clamp(phong, 0, 1), self.phong_pow) * seelight
         return color
 
 
@@ -158,10 +159,10 @@ class CheckeredSphere(Sphere):
         return self.diffuse * checker.float()
 
 scene = [
-    Sphere(vec3(.75, .1, 1.), .6, rgb(0, 0, 1)),
-    Sphere(vec3(-.75, .1, 2.25), .6, rgb(.5, .223, .5)),
-    Sphere(vec3(-2.75, .1, 3.5), .6, rgb(1., .572, .184)),
-    CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.75, .75, .75), 0),
+    Sphere(vec3(.75, .1, 1.), .6, rgb(0, 0, 1), 0.98, phong_pow = 1000),
+    Sphere(vec3(-.75, .1, 2.25), .6, rgb(.5, .223, .5), 0.5, phong_pow = 100),
+    Sphere(vec3(-2.75, .1, 3.5), .6, rgb(1., .572, .184), 0.25, phong_pow = 50),
+    CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.75, .75, .75), 0, phong_pow = 1, phong_col=rgb(0,0,0)),
     ]
 
 t0 = time.time()
