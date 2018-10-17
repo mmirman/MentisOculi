@@ -4,59 +4,22 @@ import torch as tr
 from helpers import *
 
 import time
-import numbers
+
 from functools import reduce
 
 
-def extract(cond, x):
-    if isinstance(x, numbers.Number):
-        return x
-    else:
-        return x[cond] 
+OVERSAMPLE = 4
+SUBSAMPLE = 8
+WIDTH = 400
+HEIGHT = 300
+
+
 
 def save_img(color, nm):
     print("saving: ", nm)
     rgb = [Image.fromarray(np.array(255 * np.clip(c, 0, 1).reshape((h, w))).astype(np.uint8), "L") for c in color.components()]
-    Image.merge("RGB", rgb).resize((int(w / OVERSAMPLE), int(h / OVERSAMPLE)), Image.ANTIALIAS).save("out/" + nm)
+    Image.merge("RGB", rgb).resize((WIDTH, HEIGHT), Image.ANTIALIAS).save("out/" + nm)
 
-class vec3():
-    def __init__(self, x, y, z):
-        (self.x, self.y, self.z) = (x, y, z)
-    def __mul__(self, other):
-        return vec3(self.x * other, self.y * other, self.z * other)
-    def __truediv__(self, other):
-        return vec3(self.x / other, self.y / other, self.z / other)
-
-    def __add__(self, other):
-        if not isinstance(other, vec3):
-            return vec3(self.x + other, self.y + other, self.z + other)
-        return vec3(self.x + other.x, self.y + other.y, self.z + other.z)
-    def __sub__(self, other):
-        return vec3(self.x - other.x, self.y - other.y, self.z - other.z)
-    def dot(self, other):
-        return (self.x * other.x) + (self.y * other.y) + (self.z * other.z)
-    def __abs__(self):
-        return self.dot(self)
-    def norm(self):
-        mag = tr.sqrt(abs(self))
-        return self * (1.0 / tr.where(mag == 0, dtype(1), mag))
-    def components(self):
-        return (self.x, self.y, self.z)
-    def extract(self, cond):
-        return vec3(extract(cond, self.x),
-                    extract(cond, self.y),
-                    extract(cond, self.z))
-    def place(self, cond):
-        r = vec3(zeros(cond.shape), zeros(cond.shape), zeros(cond.shape))
-        r.x[cond] = self.x
-        r.y[cond] = self.y
-        r.z[cond] = self.z
-        return r
-
-rgb = vec3
-OVERSAMPLE = 4
-SUBSAMPLE = 8
-(w, h) = (400 * OVERSAMPLE, 300 * OVERSAMPLE)         # Screen size
 
 L = vec3(5, 5., -10)        # Point light position
 E = vec3(0., 0.35, -1.)     # Eye position
@@ -86,15 +49,15 @@ def raytrace(O, D, scene, bounce = 0):
 def pathtrace(origin, S, pixels, scene):
     img = 0
     for i in range(SUBSAMPLE):
-        x_sz = (S[2] - S[0]) / w
-        y_sz = (S[3] - S[1]) / h
+        x_sz = pixels.x[1] - pixels.x[0] 
+        y_sz = pixels.y[1] - pixels.y[0]
         x_diffs = rand(pixels.x.shape) * x_sz
         y_diffs = rand(pixels.y.shape) * y_sz
         pixel_mod = pixels + vec3(x_diffs, y_diffs, 0)
         sub_img = raytrace(origin, (pixel_mod - origin).norm(), scene, bounce = 0) 
         img = sub_img + img
-        #save_img(sub_img, "sub_img"+str(i)+".png")
-        #save_img(img / (i + 1), "img"+str(i)+".png")
+        save_img(sub_img, "sub_img"+str(i)+".png")
+        save_img(img / (i + 1), "img"+str(i)+".png")
     return img / SUBSAMPLE
 
 class Sphere:
@@ -166,7 +129,9 @@ scene = [
 
 t0 = time.time()
 
-r = float(w) / h
+(w, h) = (WIDTH * OVERSAMPLE, HEIGHT * OVERSAMPLE)
+
+r = float(WIDTH) / HEIGHT
 # Screen coordinates: x0, y0, x1, y1.
 S = (-1., 1. / r + .25, 1., -1. / r + .25)
 x =  linspace(S[0], S[2], w).repeat(h)

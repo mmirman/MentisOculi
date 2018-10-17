@@ -1,5 +1,6 @@
 import torch as torch
 import os
+import numbers
 
 if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     print("using cuda")
@@ -38,3 +39,46 @@ def cudify(x):
     if use_cuda:
         return x.cuda(async=True)
     return x
+
+def extract(cond, x):
+    if isinstance(x, numbers.Number):
+        return x
+    else:
+        return x[cond] 
+
+class vec3():
+    def __init__(self, x, y, z):
+        (self.x, self.y, self.z) = (x, y, z)
+    def __mul__(self, other):
+        return vec3(self.x * other, self.y * other, self.z * other)
+    def __truediv__(self, other):
+        return vec3(self.x / other, self.y / other, self.z / other)
+
+    def __add__(self, other):
+        if not isinstance(other, vec3):
+            return vec3(self.x + other, self.y + other, self.z + other)
+        return vec3(self.x + other.x, self.y + other.y, self.z + other.z)
+    def __sub__(self, other):
+        return vec3(self.x - other.x, self.y - other.y, self.z - other.z)
+    def dot(self, other):
+        return (self.x * other.x) + (self.y * other.y) + (self.z * other.z)
+    def __abs__(self):
+        return self.dot(self)
+    def norm(self):
+        mag = torch.sqrt(abs(self))
+        return self * (1.0 / torch.where(mag == 0, dtype(1), mag))
+    def components(self):
+        return (self.x, self.y, self.z)
+    def extract(self, cond):
+        return vec3(extract(cond, self.x),
+                    extract(cond, self.y),
+                    extract(cond, self.z))
+    def place(self, cond):
+        r = vec3(zeros(cond.shape), zeros(cond.shape), zeros(cond.shape))
+        r.x[cond] = self.x
+        r.y[cond] = self.y
+        r.z[cond] = self.z
+        return r
+
+
+rgb = vec3
