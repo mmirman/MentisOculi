@@ -46,11 +46,17 @@ def extract(cond, x):
     else:
         return x[cond] 
 
+
+
 class vec3():
     def __init__(self, x, y, z):
         (self.x, self.y, self.z) = (x, y, z)
     def __mul__(self, other):
-        return vec3(self.x * other, self.y * other, self.z * other)
+        if isinstance(other, vec3):
+            return vec3(self.x * other.x, self.y * other.y, self.z * other.z)
+        else:
+            return vec3(self.x * other, self.y * other, self.z * other)
+
     def __truediv__(self, other):
         return vec3(self.x / other, self.y / other, self.z / other)
 
@@ -82,3 +88,7 @@ class vec3():
 
 
 rgb = vec3
+
+
+def vec3u(x):
+    return vec3(x,x,x)

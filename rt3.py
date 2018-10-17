@@ -4,15 +4,16 @@ import torch as tr
 from helpers import *
 
 import time
+import math
 
 from functools import reduce
 
 
 OVERSAMPLE = 4
-SUBSAMPLE = 4
-WIDTH = 600
-HEIGHT = 450
-
+SUBSAMPLE = 16
+WIDTH = 400
+HEIGHT = 300
+(w, h) = (WIDTH * OVERSAMPLE, HEIGHT * OVERSAMPLE)
 
 def save_img(color, nm):
     print("saving: ", nm)
@@ -45,19 +46,48 @@ def raytrace(O, D, scene, bounce = 0):
     return color
 
 
+mcmc_generator = []
+
+def getRand(s):
+    global mcmc_generator
+    
+    r = rand(s.shape)
+    mcmc_generator += [r]
+    return r
+
 def pathtrace(origin, S, pixels, scene):
+    global mcmc_generator
     img = 0
+
+    mcmc_best = list(mcmc_generator)
+
     for i in range(SUBSAMPLE):
+        mcmc_generator = []
+
         x_sz = (S[2] - S[0]) / w
         y_sz = (S[3] - S[1]) / h
-        x_diffs = rand(pixels.x.shape) * x_sz
-        y_diffs = rand(pixels.y.shape) * y_sz
-        pixel_mod = pixels + vec3(x_diffs, y_diffs, 0)
+
+        pixel_mod = pixels + vec3(getRand(pixels.x) * x_sz, getRand(pixels.y) * y_sz, 0)
         sub_img = raytrace(origin, (pixel_mod - origin).norm(), scene, bounce = 0) 
+
         img = sub_img + img
+
+
         save_img(sub_img, "sub_img"+str(i)+".png")
         save_img(img / (i + 1), "img"+str(i)+".png")
+
     return img / SUBSAMPLE
+
+def random_spherical(u, v):
+    theta  = u * 2 * math.pi
+    phi = v * math.pi 
+
+    # Switch to cartesian coordinates
+    sphi = phi.sin()
+    x = theta.cos() * sphi
+    y = theta.sin() * sphi
+
+    return vec3(x, y, phi.cos())
 
 class Sphere:
     def __init__(self, center, r, diffuse, mirror = 0.5):
@@ -105,8 +135,16 @@ class Sphere:
 
         # Reflection
         if bounce < MAX_BOUNCE:
-            rayD = (D - N * 2 * D.dot(N)).norm()  # reflection
-            color += raytrace(newO, rayD, scene, bounce + 1) * self.mirror
+
+            
+            rayDiff = random_spherical(getRand(N.x), getRand(N.x))
+            should_flip = N.dot(rayDiff).lt(0).float()
+            rayDiff = rayDiff * (1 - 2 * should_flip)
+
+            color += raytrace(newO, rayDiff , scene, bounce + 1) * rayDiff.dot(N) * self.diffusecolor(M)
+
+            rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
+            color += raytrace(newO, rayRefl, scene, bounce + 1) * self.mirror
 
         # Blinn-Phong shading (specular)
         phong = N.dot((toL + toO).norm())
@@ -128,7 +166,7 @@ scene = [
 
 t0 = time.time()
 
-(w, h) = (WIDTH * OVERSAMPLE, HEIGHT * OVERSAMPLE)
+
 
 r = float(WIDTH) / HEIGHT
 # Screen coordinates: x0, y0, x1, y1.
