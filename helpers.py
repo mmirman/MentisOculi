@@ -1,6 +1,7 @@
 import torch as torch
 import os
 import numbers
+import math
 
 if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     print("using cuda")
@@ -8,27 +9,27 @@ if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     device = torch.device("cuda")
     use_cuda = True
 
-    dtype = lambda *args, **kargs: torch.cuda.FloatTensor(*args, **kargs).cuda(async=cuda_async)
+    dtype = lambda *args, **kargs: torch.cuda.DoubleTensor(*args, **kargs).cuda(async=cuda_async)
     ltype = lambda *args, **kargs: torch.cuda.LongTensor(*args, **kargs).cuda(async=cuda_async)
     btype = lambda *args, **kargs: torch.cuda.ByteTensor(*args, **kargs, device=device).cuda(async=cuda_async)
-    ones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device).cuda(async=cuda_async)
-    ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device=device).cuda(async=cuda_async)
-    zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device).cuda(async=cuda_async)
-    eye = lambda *args, **cargs: torch.eye(*args, **cargs, device=device).cuda(async=cuda_async)
-    rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device).cuda(async=cuda_async)
+    ones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
+    ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
+    zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
+    eye = lambda *args, **cargs: torch.eye(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
+    rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
 
-    linspace = lambda *args, **cargs: torch.linspace(*args, **cargs).cuda(async=cuda_async)
+    linspace = lambda *args, **cargs: torch.linspace(*args, **cargs, dtype=torch.double).cuda(async=cuda_async)
 
     print("set up cuda")
 else:
     print("not using cuda")
     device = torch.device("cpu")
-    dtype = lambda *args, **kargs: torch.FloatTensor(*args, **kargs)
+    dtype = lambda *args, **kargs: torch.DoubleTensor(*args, **kargs)
     ltype = lambda *args, **kargs: torch.LongTensor(*args, **kargs)
     btype = lambda *args, **kargs: torch.ByteTensor(*args, **kargs)
-    linspace = torch.linspace
+    linspace = lambda *args, **cargs: torch.linspace(*args, **cargs, dtype=torch.double)
 
-    rand = torch.rand
+    rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double)
     ones = torch.ones
     ones_like = torch.ones_like
     zeros = torch.zeros
@@ -70,9 +71,16 @@ class vec3():
         return (self.x * other.x) + (self.y * other.y) + (self.z * other.z)
     def __abs__(self):
         return self.dot(self)
+    def rgbNorm(self):
+        return self * (1 / (self.x + self.y + self.z))
     def norm(self):
-        mag = torch.sqrt(abs(self))
-        return self * (1.0 / torch.where(mag == 0, dtype(1), mag))
+        l = abs(self)
+        mag = torch.sqrt(l) if isinstance(l, torch.Tensor) else math.sqrt(l)
+        if isinstance(mag, torch.Tensor):
+            mag =  torch.where(mag == 0, dtype(1), mag.double())
+        else:
+            mag = 1 if mag == 0 else mag
+        return self * (1.0 / mag)
     def components(self):
         return (self.x, self.y, self.z)
     def extract(self, cond):
