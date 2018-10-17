@@ -9,16 +9,15 @@ from functools import reduce
 
 
 OVERSAMPLE = 4
-SUBSAMPLE = 8
-WIDTH = 400
-HEIGHT = 300
-
+SUBSAMPLE = 4
+WIDTH = 600
+HEIGHT = 450
 
 
 def save_img(color, nm):
     print("saving: ", nm)
-    rgb = [Image.fromarray(np.array(255 * np.clip(c, 0, 1).reshape((h, w))).astype(np.uint8), "L") for c in color.components()]
-    Image.merge("RGB", rgb).resize((WIDTH, HEIGHT), Image.ANTIALIAS).save("out/" + nm)
+    rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((h, w)) * 255), "F").resize((WIDTH, HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
+    Image.merge("RGB", rgb).save("out/" + nm)
 
 
 L = vec3(5, 5., -10)        # Point light position
@@ -49,8 +48,8 @@ def raytrace(O, D, scene, bounce = 0):
 def pathtrace(origin, S, pixels, scene):
     img = 0
     for i in range(SUBSAMPLE):
-        x_sz = pixels.x[1] - pixels.x[0] 
-        y_sz = pixels.y[1] - pixels.y[0]
+        x_sz = (S[2] - S[0]) / w
+        y_sz = (S[3] - S[1]) / h
         x_diffs = rand(pixels.x.shape) * x_sz
         y_diffs = rand(pixels.y.shape) * y_sz
         pixel_mod = pixels + vec3(x_diffs, y_diffs, 0)
