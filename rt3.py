@@ -53,7 +53,7 @@ class Sphere:
         # D is direction
         # O is previous origin
         M = (O + D * d)                         # new intersection point
-        N = (M - self.c) * (1. / self.r)        # normal
+        N = (M - self.c) / self.r        # normal
 
         toO = (O - M).norm()                    # direction to ray origin
         newO = M + N * args.NUDGE               # M nudged to avoid itself
@@ -61,12 +61,12 @@ class Sphere:
         rayDiff = random_spherical(getRand(N.x), getRand(N.x))
         should_flip = N.dot(rayDiff).lt(0).double()
         rayDiff = rayDiff * (1 - 2 * should_flip)
+        diffCol = self.diffusecolor(M)
+        color = raytrace(args, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * diffCol * 2
 
-        color = raytrace(args, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * self.diffusecolor(M) * 2
-
-        if self.mirror is not None and (isinstance(self.mirror,vec3) or self.mirror > 0):
+        if self.mirror is not None:
             rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-            color += raytrace(args, newO, rayRefl, bounce + 1) * self.mirror * rayDiff.dot(N)
+            color = ( color * (self.mirror * -1 + 1) + raytrace(args, newO, rayRefl, bounce + 1) * self.mirror * rayDiff.dot(N) * 2 )
         return color
 
 
@@ -102,7 +102,7 @@ def raytrace(args, O, D, bounce = 0):
             dc = extract(hit, d)
             Dc = D.extract(hit)
             cc = s.light(args, Oc, Dc, dc, bounce)
-            color += cc.place(hit) * (1 / ( 1 - probStop))
+            color += cc.place(hit) / (1 - probStop)
     return color
 
 

@@ -59,7 +59,10 @@ class vec3(object):
             return vec3(self.x * other, self.y * other, self.z * other)
 
     def __truediv__(self, other):
-        return vec3(self.x / other, self.y / other, self.z / other)
+        if isinstance(other, vec3):
+            return vec3(self.x / other.x, self.y / other.y, self.z / other.z)
+        else:
+            return vec3(self.x / other, self.y / other, self.z / other)
 
     def __add__(self, other):
         if not isinstance(other, vec3):
