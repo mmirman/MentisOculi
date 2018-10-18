@@ -127,48 +127,52 @@ def raytrace(args, getRand, O, D, bounce = 0):
 def getNewRand(getRand, mask, curr_idx):
     if mask.all():
         return getRand
-    def newRand(shape = None):
-        if shape is None:
-            shape = (mask[mask].shape, mask, [curr_idx])
+    def newRand(arg = None):
+        if arg is None:
+            arg = (mask[mask].shape, mask, [curr_idx])
         else:
-            (sN, hitN, sub_idx) = shape
-            shape = (sN, place(mask, hitN), [curr_idx] + sub_idx)
-        return getRand(shape)
+            (sN, hitN, sub_idx) = arg
+            arg = (sN, place(mask, hitN), [curr_idx] + sub_idx)
+        return getRand(arg)
     return newRand
 
-def getOriginalRand(pshape, mcmc_best):
+def circ(a):
+    a.sub_(a.floor())
+
+def getOriginalRand(top_shape, mcmc_best):
     mcmc_generator = {}
     
-    def getRand(shape = None):
-            if shape is None:
-                mask = lones(pshape, dtype=torch.uint8)
-                shape = pshape
+    def getRand(arg = None):
+            if arg is None:
+                mask = lones(top_shape, dtype=torch.uint8)
+                maskShape = top_shape
                 idx = []
             else:
-                shape,mask, idx = shape
+                maskShape,mask, idx = arg
 
             if tuple(idx) not in mcmc_best:
-                r = rand(shape)
-            else:
-                bestShape, bestIndxs, bestRand = mcmc_best[tuple(idx)]
-                
-                #idxs = torch.sparse_coo_tensor(bestIndxs.cuda().long(), cudify(bestRand))
-                
-                bestMask = lzeros(bestShape, dtype=torch.uint8)
+                r = rand(maskShape)
+            else: 
+                # could be done way quicker in handwritten cuda.
+                # sadly, pseudorandoms are slow enough that we want to do as few of them as possible.
+
+                bestIndxs, bestRand = mcmc_best[tuple(idx)]
+
+                bestMask = lzeros(top_shape, dtype=torch.uint8)
                 bestMask[bestIndxs] = 1
                 
                 relevantBestMask = bestMask & mask 
                 
-                newRands = zeros(max_shape(bestShape, shape)) # if these are different sizes then something went very significantly wrong
+                newRands = zeros(max_shape(top_shape, maskShape)) # if these are different sizes then something went very significantly wrong
 
                 newRands[bestMask] = bestRand 
-                newRands[relevantBestMask] += rand(newRands[relevantBestMask].shape)
-                newRands[relevantBestMask].clamp_(0,1)
-                newRands[(1 - bestMask) & mask] = rand(newRands[(1 - bestMask) & mask].shape)
-                
-                r = newRands[mask]
+                newRands[relevantBestMask] += torch.normal(mean = 0.0, std = 0.1 * newRands[relevantBestMask])
+                newRands[(1 - bestMask) & mask] = rand(size = newRands[(1 - bestMask) & mask].shape)
 
-            mcmc_generator[tuple(idx)] = (mask.shape, mask.nonzero().cpu(),r)
+                r = newRands[mask]
+                circ(r)
+
+            mcmc_generator[tuple(idx)] = (mask.nonzero().cpu(),r)
             return r
 
     return getRand, mcmc_generator
@@ -185,7 +189,7 @@ def pathtrace(args, S, pixels):
 
     for i in itertools.count(1,1):
         if i % 20 == 0:
-            mcmc_best = []
+            mcmc_best = {}
 
         tPass = time.time()
         

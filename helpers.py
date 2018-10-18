@@ -19,6 +19,7 @@ if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     lzeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device).cuda(async=cuda_async)
     eye = lambda *args, **cargs: torch.eye(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
     rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
+    randn = lambda *args, **cargs: torch.randn(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
 
     linspace = lambda *args, **cargs: torch.linspace(*args, **cargs, dtype=torch.double).cuda(async=cuda_async)
 
@@ -32,6 +33,7 @@ else:
     linspace = lambda *args, **cargs: torch.linspace(*args, **cargs, dtype=torch.double)
 
     rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double)
+    randn = lambda *args, **cargs: torch.randn(*args, **cargs, device = device, dtype=torch.double)
     ones = lambda *args, **cargs: torch.ones(*args, **cargs, device = device, dtype=torch.double) 
     lones = lambda *args, **cargs: torch.ones(*args, **cargs, device = device) 
     ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device = device, dtype=torch.double) 
