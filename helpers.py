@@ -30,10 +30,10 @@ else:
     linspace = lambda *args, **cargs: torch.linspace(*args, **cargs, dtype=torch.double)
 
     rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double)
-    ones = torch.ones
-    ones_like = torch.ones_like
-    zeros = torch.zeros
-    eye = torch.eye
+    ones = lambda *args, **cargs: torch.ones(*args, **cargs, device = device, dtype=torch.double) 
+    ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device = device, dtype=torch.double) 
+    zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device = device, dtype=torch.double) 
+    eye = lambda *args, **cargs: torch.eye(*args, **cargs, device = device, dtype=torch.double) 
     use_cuda = False
 
 def cudify(x):
