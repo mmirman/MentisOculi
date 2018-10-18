@@ -155,7 +155,9 @@ def getOriginalRand(top_shape, mcmc_best):
             else: 
                 # could be done way quicker in handwritten cuda.
                 # sadly, pseudorandoms are slow enough that we want to do as few of them as possible.
-
+                
+                # can theoretically optimize this a bit here by using a subset of top_shape corresponding to the max in mask
+                
                 bestIndxs, bestRand = mcmc_best[tuple(idx)]
 
                 bestMask = lzeros(top_shape, dtype=torch.uint8)
@@ -163,7 +165,7 @@ def getOriginalRand(top_shape, mcmc_best):
                 
                 relevantBestMask = bestMask & mask 
                 
-                newRands = zeros(max_shape(top_shape, maskShape)) # if these are different sizes then something went very significantly wrong
+                newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
 
                 newRands[bestMask] = bestRand 
                 newRands[relevantBestMask] += torch.normal(mean = 0.0, std = 0.1 * newRands[relevantBestMask])
@@ -177,6 +179,36 @@ def getOriginalRand(top_shape, mcmc_best):
 
     return getRand, mcmc_generator
 
+def mixSamples(top_shape, mix, sa, sb):
+    res = {}
+            
+    for k in set().union(sa.keys(), sb.keys()):
+        if k not in sa.keys():
+            res[k] = sb[k] # what are these actually?
+        elif k not in sb.keys():
+            res[k] = sa[k]
+        else:
+            aI, aR = sa[k]
+            bI, bR = sb[k]
+            
+            aM = lzeros(top_shape, dtype=torch.uint8)
+            bM = lzeros(top_shape, dtype=torch.uint8)
+            
+            aM[aI] = 1
+            bM[bI] = 1
+
+            aRes = zeros(top_shape)
+            bRes = zeros(top_shape)
+
+            aRes[aM] = aR
+            bRes[bM] = bR
+            
+            abM = aM | bM
+
+            # be wary of what happens when mixing something in which was not there before!
+            res[k] = (abM.nonzero().cpu(), (aRes * mix + bRes * (1 - mix))[abM])
+    return res
+
 def pathtrace(args, S, pixels):
 
     img = 0
@@ -184,21 +216,37 @@ def pathtrace(args, S, pixels):
     x_sz = (S[2] - S[0]) / args.w
     y_sz = (S[3] - S[1]) / args.h
 
-    mcmc_best = {}
+    best_sample_params = {}
+    best_img = vec3(-10000, -10000, -10000)
     total_time = 0
-
+    
+    top_shape = pixels.x.shape
+    
     for i in itertools.count(1,1):
         if i % 20 == 0:
-            mcmc_best = {}
+            best_sample_params = {}
 
         tPass = time.time()
         
-        getRand, mcmc_generator = getOriginalRand(pixels.x.shape, mcmc_best)
-        mcmc_best = mcmc_generator
+        getRand, new_sample_params = getOriginalRand(top_shape, best_sample_params)
         
         pixel_mod = pixels + vec3(getRand() * x_sz, getRand() * y_sz, 0)
         sub_img = raytrace(args, getRand, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
 
+        if len(best_sample_params.keys()) > 0:
+            accept_var = rand(top_shape)
+            accept_prob = (sub_img.luminance() / best_img.luminance()))
+            accept_prob.clamp_(0,1)
+            
+            should_accept = (accept_var <= accept_prob).double()
+        
+            best_sample_params = mixSamples(top_shape, should_accept, new_sample_params, best_sample_params)
+            best_img = sub_img * should_accept + best_img * (1 - should_accept)
+        else:
+            best_sample_params = new_sample_params
+            best_img = sub_img
+        
+        
         img = sub_img + img
 
         tCurr = time.time()
