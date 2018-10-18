@@ -29,13 +29,11 @@ def random_spherical(u, v):
     return vec3(x, y, phi.cos())
 
 class Sphere:
-    def __init__(self, center, r, diffuse, mirror = 0.5, phong_pow = 50, phong_col = rgb(1, 1, 1)):
+    def __init__(self, center, r, diffuse, mirror = None):
         self.c = center
         self.r = r
         self.diffuse = diffuse
         self.mirror = mirror
-        self.phong_pow = phong_pow
-        self.phong_col = phong_col
 
     def intersect(self, args, O, D):
         b = 2 * D.dot(O - self.c)
@@ -64,9 +62,9 @@ class Sphere:
         should_flip = N.dot(rayDiff).lt(0).double()
         rayDiff = rayDiff * (1 - 2 * should_flip)
 
-        color = raytrace(args, newO, rayDiff , bounce + 1) * rayDiff.dot(N) * self.diffusecolor(M) * 2
+        color = raytrace(args, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * self.diffusecolor(M) * 2
 
-        if isinstance(self.mirror,vec3) or self.mirror > 0:
+        if self.mirror is not None and (isinstance(self.mirror,vec3) or self.mirror > 0):
             rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
             color += raytrace(args, newO, rayRefl, bounce + 1) * self.mirror * rayDiff.dot(N)
         return color
@@ -87,10 +85,13 @@ def raytrace(args, O, D, bounce = 0):
     # O is the ray origin, D is the normalized ray direction
     # scene is a list of Sphere objects (see below)
     # bounce is the number of the bounce, starting at zero for camera rays
+    color = rgb(0, 0, 0)
+    if bounce > args.MAX_BOUNCE:
+        return color
 
     distances = [dtype(s.intersect(args, O, D)) for s in args.scene]
     nearest = reduce(tr.min, distances)
-    color = rgb(0, 0, 0)
+
     for (s, d) in zip(args.scene, distances):
         hit = (nearest < args.FARAWAY) & (d == nearest) & (d > args.NUDGE) # d == nearest is hacky af
         probStop = args.STOP_PROB if bounce >= 1 else 0
@@ -123,9 +124,9 @@ def pathtrace(args, S, pixels):
 
     mcmc_best = list(mcmc_generator)
 
-    tInitial = time.time()
-    for i in itertools.count(1,1):
+    total_time = 0
 
+    for i in itertools.count(1,1):
         tPass = time.time()
         
         mcmc_generator = []
@@ -136,8 +137,8 @@ def pathtrace(args, S, pixels):
         img = sub_img + img
 
         tCurr = time.time()
-        total_time = tCurr - tInitial
         pass_time = tCurr - tPass
+        total_time += pass_time
 
         print("\n\nPass:", i)
         print("\tElapsed Time:", total_time)
@@ -183,18 +184,17 @@ class StaticArgs:
     WIDTH = 400
     HEIGHT = 300
 
-
     scene = [
-        Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1), 0, 0, 0),
-        Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.99, 0.99), 0.0, phong_pow = 1, phong_col=rgb(0,0,0)),
-        Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.5, 0.95, 1), phong_pow = 1000, phong_col=rgb(0,0.6,0)),
-        Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7, phong_pow = 1000, phong_col=rgb(0.2,0,0)),
-        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.95, .95, .95), 0, phong_pow = 1, phong_col=rgb(0,0,0)),
+        Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
+        Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.99, 0.99)),
+        Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.5, 0.95, 1)),
+        Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7),
+        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.95, .95, .95)),
     ]
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 10
+    MAX_BOUNCE = 6
     NUDGE = 0.0000001
     STOP_PROB = 0.7
 
