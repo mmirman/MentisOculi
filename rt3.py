@@ -49,6 +49,18 @@ class Sphere:
     def diffusecolor(self, M):
         return self.diffuse
 
+    def sampleDiffuse(self, args, getRand, M, N, newO, bounce):
+        rayDiff = random_spherical(getRand(), getRand())
+        should_flip = N.dot(rayDiff).lt(0).double()
+        rayDiff = rayDiff * (1 - 2 * should_flip)
+
+        return raytrace(args, getRand, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * self.diffusecolor(M) * 2 
+
+    def sampleMirror(self, args, getRand, D, N, newO, bounce):
+        rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
+        return raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror * rayRefl.dot(N)        
+
+
     def light(self, args, getRand, O, D, d, bounce):
         # D is direction
         # O is previous origin
@@ -58,15 +70,21 @@ class Sphere:
         toO = (O - M).norm()                    # direction to ray origin
         newO = M + N * args.NUDGE               # M nudged to avoid itself
 
-        rayDiff = random_spherical(getRand(), getRand())
-        should_flip = N.dot(rayDiff).lt(0).double()
-        rayDiff = rayDiff * (1 - 2 * should_flip)
-        diffCol = self.diffusecolor(M)
-        color = raytrace(args, getRand, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * diffCol * 2
-
         if self.mirror is not None:
-            rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-            color = ( color * (self.mirror * -1 + 1) + raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror * rayDiff.dot(N) * 2 )
+            diffcol = self.diffusecolor(M)
+            refl_prob = self.mirror / (self.mirror + diffcol.luminance())if isinstance(self.mirror, numbers.Number) else self.mirror.luminance()
+            reflect = getRand() <= refl_prob
+            diffuse = 1 - reflect
+            
+            
+            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / refl_prob) if tr.sum(diffuse) > 0 else rgb(0,0,0)
+
+            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / (1 - refl_prob)) if tr.sum(reflect) > 0 else rgb(0,0,0)
+
+            color = colorDiff.place(diffuse) + colorRefl.place(reflect)
+        else:
+            color = self.sampleDiffuse(args, getRand, M, N, newO, bounce)
+
         return color
 
 
@@ -78,7 +96,7 @@ class CheckeredSphere(Sphere):
 class Light(Sphere):
     def light(self, *args, **kargs):
         return self.diffuse
-
+  
 
 def raytrace(args, getRand, O, D, bounce = 0):
     # O is the ray origin, D is the normalized ray direction
@@ -100,17 +118,24 @@ def raytrace(args, getRand, O, D, bounce = 0):
             Oc = O.extract(hit)
             dc = extract(hit, d)
             Dc = D.extract(hit)
-            def getNewRand(shape = None):
-                if shape is None:
-                    shape = (dc.shape, hit)
-                else:
-                    (sN, hitN) = shape
-                    shape = (sN, place(hit, hitN))
-                return getRand(shape)
-            
-            cc = s.light(args, getNewRand, Oc, Dc, dc, bounce)
+            cc = s.light(args, getNewRand(getRand, hit), Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
     return color
+
+
+
+def getNewRand(getRand, cond):
+    if cond.all():
+        return getRand
+    def newRand(shape = None):
+        if shape is None:
+            shape = (cond[cond].shape, cond)
+        else:
+            (sN, hitN) = shape
+            shape = (sN, place(cond, hitN))
+        return getRand(shape)
+    return newRand
+
 
 def pathtrace(args, S, pixels):
 
@@ -137,7 +162,8 @@ def pathtrace(args, S, pixels):
                 s,hits = shape
 
             r = rand(s)
-            mcmc_generator.append([(hits,r)])
+            
+            mcmc_generator.append([(hits.nonzero().cpu(),r)])
             return r
         
 
@@ -188,7 +214,7 @@ def render(args):
 
 class StaticArgs:
     SAVE_DIR="out_met"
-    OVERSAMPLE = 4
+    OVERSAMPLE = 8
     WIDTH = 400
     HEIGHT = 300
 

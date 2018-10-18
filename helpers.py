@@ -56,6 +56,14 @@ def extract(cond, x):
     else:
         return x[cond] 
 
+def product(it):
+    if isinstance(it,int):
+        return it
+    product = 1
+    for x in it:
+        if x >= 0:
+            product *= x
+    return product
 
 
 class vec3(object):
