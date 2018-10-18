@@ -49,7 +49,7 @@ def extract(cond, x):
 
 
 
-class vec3():
+class vec3(object):
     def __init__(self, x, y, z):
         (self.x, self.y, self.z) = (x, y, z)
     def __mul__(self, other):
@@ -81,6 +81,10 @@ class vec3():
         else:
             mag = 1 if mag == 0 else mag
         return self * (1.0 / mag)
+
+    def luminance(self):
+        return (self.x + self.y + self.z) / 3
+
     def components(self):
         return (self.x, self.y, self.z)
     def extract(self, cond):

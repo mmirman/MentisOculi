@@ -2,31 +2,33 @@ from PIL import Image
 import numpy as np
 import torch as tr
 from helpers import *
-
+import os
 import time
 import math
 
 from functools import reduce
 
-
-OVERSAMPLE = 4
-SUBSAMPLE = 32
+SAVE_DIR="out_met"
+OVERSAMPLE = 8
 WIDTH = 400
 HEIGHT = 300
 (w, h) = (WIDTH * OVERSAMPLE, HEIGHT * OVERSAMPLE)
 
+if not os.path.exists(SAVE_DIR):
+    os.makedirs(SAVE_DIR)
+
 def save_img(color, nm):
     print("saving: ", nm)
-    color = color 
+    color = color * 20
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((h, w)).float() * 255), "F").resize((WIDTH, HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
-    Image.merge("RGB", rgb).save("out/" + nm)
-
+    Image.merge("RGB", rgb).save(os.path.join(SAVE_DIR,nm))
 
 L = vec3(1.5, 0.5, 0.8)        # Point light position
 E = vec3(0., 0.35, -1.)     # Eye position
 FARAWAY = 1.0e36            # an implausibly huge distance
-MAX_BOUNCE = 4
+MAX_BOUNCE = 10
 NUDGE = 0.0000001
+STOP_PROB = 0.7
 
 def raytrace(O, D, scene, bounce = 0):
     # O is the ray origin, D is the normalized ray direction
@@ -38,12 +40,15 @@ def raytrace(O, D, scene, bounce = 0):
     color = rgb(0, 0, 0)
     for (s, d) in zip(scene, distances):
         hit = (nearest < FARAWAY) & (d == nearest) & (d > NUDGE) # d == nearest is hacky af
+        probStop = STOP_PROB if bounce >= 1 else 0
+        hit = hit & (getRand(D.x) >= probStop)
+
         if tr.sum(hit).data > 0:
             Oc = O.extract(hit)
             dc = extract(hit, d)
             Dc = D.extract(hit)
             cc = s.light(Oc, Dc, dc, scene, bounce)
-            color += cc.place(hit)
+            color += cc.place(hit) * (1 / ( 1 - probStop))
     return color
 
 
@@ -62,7 +67,7 @@ def pathtrace(origin, S, pixels, scene):
 
     mcmc_best = list(mcmc_generator)
 
-    for i in range(SUBSAMPLE):
+    for i in iter(int, 1):
         mcmc_generator = []
 
         x_sz = (S[2] - S[0]) / w
@@ -120,59 +125,36 @@ class Sphere:
         M = (O + D * d)                         # new intersection point
         N = (M - self.c) * (1. / self.r)        # normal
 
-        toL = (L - M).norm()                    # direction to light
         toO = (O - M).norm()                    # direction to ray origin
         newO = M + N * NUDGE                    # M nudged to avoid itself
 
+        rayDiff = random_spherical(getRand(N.x), getRand(N.x))
+        should_flip = N.dot(rayDiff).lt(0).double()
+        rayDiff = rayDiff * (1 - 2 * should_flip)
 
-        # Shadow: find if the point is shadowed or not.
-        # This amounts to finding out if M can see the light
-        light_distances = [s.intersect(newO, toL) for s in scene]
-        light_nearest = reduce(tr.min, light_distances)
-        seelight = ((light_nearest < 0)  + (light_nearest * light_nearest >= abs(L - M))).double()
+        color = raytrace(newO, rayDiff , scene, bounce + 1) * rayDiff.dot(N) * self.diffusecolor(M) * 2
 
-        # Ambient
-        color = rgb(0.0, 0.0, 0.0)
-
-        # Lambert shading (diffuse)
-        lv = N.dot(toL).relu()
-        x = self.diffusecolor(M) * lv * seelight
-        color += x
-
-        # Reflection
-        if bounce < MAX_BOUNCE:
-
-            
-            rayDiff = random_spherical(getRand(N.x), getRand(N.x))
-            should_flip = N.dot(rayDiff).lt(0).double()
-            rayDiff = rayDiff * (1 - 2 * should_flip)
-
-            color += raytrace(newO, rayDiff , scene, bounce + 1) * rayDiff.dot(N) * self.diffusecolor(M)
-
+        if isinstance(self.mirror,vec3) or self.mirror > 0:
             rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
             color += raytrace(newO, rayRefl, scene, bounce + 1) * self.mirror * rayDiff.dot(N)
-
-        # Blinn-Phong shading (specular)
-        phong = N.dot((toL + toO).norm())
-        color += self.phong_col * tr.pow(tr.clamp(phong, 0, 1), self.phong_pow) * seelight
         return color
 
 
 class CheckeredSphere(Sphere):
     def diffusecolor(self, M):
         checker = ((M.x * 2).int() % 2) == ((M.z * 2).int() % 2)
-        return self.diffuse * checker.double() + rgb(0.6, 0.5, 0.5) * (1 - checker.double())
+        return self.diffuse * checker.double() + rgb(0.8, 0.7, 0.7) * (1 - checker.double())
 
 class Light(Sphere):
     def light(self, O, D, d, scene, bounce):
         return self.diffuse
 
 scene = [
-    Light(vec3(1.7, 0.6, 0.7), 0.1, rgb(3, 3, 3), 0, 0, 0),
-    Sphere(vec3(0, 200, 1), 197, rgb(0.9, 0.9, 0.9), 0.1, phong_pow = 1, phong_col=rgb(0,0,0)),
-    Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.1, 0.9, 1), phong_pow = 1000, phong_col=rgb(0,0.6,0)),
-    Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.6, phong_pow = 1000, phong_col=rgb(0.2,0,0)),
-    CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.75, .75, .85), 0, phong_pow = 1, phong_col=rgb(0,0,0)),
+    Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1), 0, 0, 0),
+    Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.99, 0.99), 0.0, phong_pow = 1, phong_col=rgb(0,0,0)),
+    Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.5, 0.95, 1), phong_pow = 1000, phong_col=rgb(0,0.6,0)),
+    Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7, phong_pow = 1000, phong_col=rgb(0.2,0,0)),
+    CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.95, .95, .95), 0, phong_pow = 1, phong_col=rgb(0,0,0)),
     ]
 
 t0 = time.time()
