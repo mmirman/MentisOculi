@@ -13,8 +13,10 @@ if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     ltype = lambda *args, **kargs: torch.cuda.LongTensor(*args, **kargs).cuda(async=cuda_async)
     btype = lambda *args, **kargs: torch.cuda.ByteTensor(*args, **kargs, device=device).cuda(async=cuda_async)
     ones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
+    lones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device).cuda(async=cuda_async)
     ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
     zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
+    lzeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device).cuda(async=cuda_async)
     eye = lambda *args, **cargs: torch.eye(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
     rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
 
@@ -31,8 +33,10 @@ else:
 
     rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double)
     ones = lambda *args, **cargs: torch.ones(*args, **cargs, device = device, dtype=torch.double) 
+    lones = lambda *args, **cargs: torch.ones(*args, **cargs, device = device) 
     ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device = device, dtype=torch.double) 
     zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device = device, dtype=torch.double) 
+    lzeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device = device) 
     eye = lambda *args, **cargs: torch.eye(*args, **cargs, device = device, dtype=torch.double) 
     use_cuda = False
 
@@ -40,6 +44,11 @@ def cudify(x):
     if use_cuda:
         return x.cuda(async=True)
     return x
+
+def place(cond, x):
+    r = lzeros(cond.shape, dtype=torch.uint8)
+    r[cond] = x
+    return r
 
 def extract(cond, x):
     if isinstance(x, numbers.Number):

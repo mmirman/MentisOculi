@@ -58,7 +58,7 @@ class Sphere:
         toO = (O - M).norm()                    # direction to ray origin
         newO = M + N * args.NUDGE               # M nudged to avoid itself
 
-        rayDiff = random_spherical(getRand(N.x), getRand(N.x))
+        rayDiff = random_spherical(getRand(), getRand())
         should_flip = N.dot(rayDiff).lt(0).double()
         rayDiff = rayDiff * (1 - 2 * should_flip)
         diffCol = self.diffusecolor(M)
@@ -94,13 +94,21 @@ def raytrace(args, getRand, O, D, bounce = 0):
     for (s, d) in zip(args.scene, distances):
         hit = (nearest < args.FARAWAY) & (d == nearest) & (d > args.NUDGE) # d == nearest is hacky af
         probStop = args.STOP_PROB if bounce >= 1 else 0
-        hit = hit & (getRand(D.x) >= probStop)
+        hit = hit & (getRand() >= probStop)
 
         if tr.sum(hit).data > 0:
             Oc = O.extract(hit)
             dc = extract(hit, d)
             Dc = D.extract(hit)
-            cc = s.light(args, getRand, Oc, Dc, dc, bounce)
+            def getNewRand(shape = None):
+                if shape is None:
+                    shape = (dc.shape, hit)
+                else:
+                    (sN, hitN) = shape
+                    shape = (sN, place(hit, hitN))
+                return getRand(shape)
+            
+            cc = s.light(args, getNewRand, Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
     return color
 
@@ -121,13 +129,19 @@ def pathtrace(args, S, pixels):
         
         mcmc_generator = []
 
-        def getRand(s):
-            r = rand(s.shape)
-            mcmc_generator.append([r])
+        def getRand(shape = None):
+            if shape is None:
+                hits = 1 + pixels.x * 0 
+                s = pixels.x.shape
+            else:
+                s,hits = shape
+
+            r = rand(s)
+            mcmc_generator.append([(hits,r)])
             return r
         
 
-        pixel_mod = pixels + vec3(getRand(pixels.x) * x_sz, getRand(pixels.y) * y_sz, 0)
+        pixel_mod = pixels + vec3(getRand() * x_sz, getRand() * y_sz, 0)
         sub_img = raytrace(args, getRand, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
 
         img = sub_img + img
@@ -174,7 +188,7 @@ def render(args):
 
 class StaticArgs:
     SAVE_DIR="out_met"
-    OVERSAMPLE = 8
+    OVERSAMPLE = 4
     WIDTH = 400
     HEIGHT = 300
 
