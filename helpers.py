@@ -65,6 +65,8 @@ def product(it):
             product *= x
     return product
 
+def max_shape(l,r):
+    return [ max(x,y) for x,y in zip(l,r) ]
 
 class vec3(object):
     def __init__(self, x, y, z):

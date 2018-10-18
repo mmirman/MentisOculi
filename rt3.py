@@ -77,9 +77,9 @@ class Sphere:
             diffuse = 1 - reflect
             
             
-            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / refl_prob) if tr.sum(diffuse) > 0 else rgb(0,0,0)
+            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / refl_prob) if tr.sum(diffuse) > 0 else rgb(0,0,0)
 
-            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / (1 - refl_prob)) if tr.sum(reflect) > 0 else rgb(0,0,0)
+            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / (1 - refl_prob)) if tr.sum(reflect) > 0 else rgb(0,0,0)
 
             color = colorDiff.place(diffuse) + colorRefl.place(reflect)
         else:
@@ -109,7 +109,7 @@ def raytrace(args, getRand, O, D, bounce = 0):
     distances = [dtype(s.intersect(args, O, D)) for s in args.scene]
     nearest = reduce(tr.min, distances)
 
-    for (s, d) in zip(args.scene, distances):
+    for (s, d, i) in zip(args.scene, distances, range(len(args.scene))):
         hit = (nearest < args.FARAWAY) & (d == nearest) & (d > args.NUDGE) # d == nearest is hacky af
         probStop = args.STOP_PROB if bounce >= 1 else 0
         hit = hit & (getRand() >= probStop)
@@ -118,24 +118,60 @@ def raytrace(args, getRand, O, D, bounce = 0):
             Oc = O.extract(hit)
             dc = extract(hit, d)
             Dc = D.extract(hit)
-            cc = s.light(args, getNewRand(getRand, hit), Oc, Dc, dc, bounce)
+            cc = s.light(args, getNewRand(getRand, hit, i), Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
     return color
 
 
 
-def getNewRand(getRand, cond):
-    if cond.all():
+def getNewRand(getRand, mask, curr_idx):
+    if mask.all():
         return getRand
     def newRand(shape = None):
         if shape is None:
-            shape = (cond[cond].shape, cond)
+            shape = (mask[mask].shape, mask, [curr_idx])
         else:
-            (sN, hitN) = shape
-            shape = (sN, place(cond, hitN))
+            (sN, hitN, sub_idx) = shape
+            shape = (sN, place(mask, hitN), [curr_idx] + sub_idx)
         return getRand(shape)
     return newRand
 
+def getOriginalRand(pshape, mcmc_best):
+    mcmc_generator = {}
+    
+    def getRand(shape = None):
+            if shape is None:
+                mask = lones(pshape, dtype=torch.uint8)
+                shape = pshape
+                idx = []
+            else:
+                shape,mask, idx = shape
+
+            if tuple(idx) not in mcmc_best:
+                r = rand(shape)
+            else:
+                bestShape, bestIndxs, bestRand = mcmc_best[tuple(idx)]
+                
+                #idxs = torch.sparse_coo_tensor(bestIndxs.cuda().long(), cudify(bestRand))
+                
+                bestMask = lzeros(bestShape, dtype=torch.uint8)
+                bestMask[bestIndxs] = 1
+                
+                relevantBestMask = bestMask & mask 
+                
+                newRands = zeros(max_shape(bestShape, shape)) # if these are different sizes then something went very significantly wrong
+
+                newRands[bestMask] = bestRand 
+                newRands[relevantBestMask] += rand(newRands[relevantBestMask].shape)
+                newRands[relevantBestMask].clamp_(0,1)
+                newRands[(1 - bestMask) & mask] = rand(newRands[(1 - bestMask) & mask].shape)
+                
+                r = newRands[mask]
+
+            mcmc_generator[tuple(idx)] = (mask.shape, mask.nonzero().cpu(),r)
+            return r
+
+    return getRand, mcmc_generator
 
 def pathtrace(args, S, pixels):
 
@@ -144,29 +180,18 @@ def pathtrace(args, S, pixels):
     x_sz = (S[2] - S[0]) / args.w
     y_sz = (S[3] - S[1]) / args.h
 
-    mcmc_best = []
-
+    mcmc_best = {}
     total_time = 0
-    mcmc_generator = []
 
     for i in itertools.count(1,1):
+        if i % 20 == 0:
+            mcmc_best = []
+
         tPass = time.time()
         
-        mcmc_generator = []
-
-        def getRand(shape = None):
-            if shape is None:
-                hits = 1 + pixels.x * 0 
-                s = pixels.x.shape
-            else:
-                s,hits = shape
-
-            r = rand(s)
-            
-            mcmc_generator.append([(hits.nonzero().cpu(),r)])
-            return r
+        getRand, mcmc_generator = getOriginalRand(pixels.x.shape, mcmc_best)
+        mcmc_best = mcmc_generator
         
-
         pixel_mod = pixels + vec3(getRand() * x_sz, getRand() * y_sz, 0)
         sub_img = raytrace(args, getRand, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
 
@@ -214,7 +239,7 @@ def render(args):
 
 class StaticArgs:
     SAVE_DIR="out_met"
-    OVERSAMPLE = 8
+    OVERSAMPLE = 4
     WIDTH = 400
     HEIGHT = 300
 
