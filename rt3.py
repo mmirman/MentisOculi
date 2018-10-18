@@ -49,7 +49,7 @@ class Sphere:
     def diffusecolor(self, M):
         return self.diffuse
 
-    def light(self, args, O, D, d, bounce):
+    def light(self, args, getRand, O, D, d, bounce):
         # D is direction
         # O is previous origin
         M = (O + D * d)                         # new intersection point
@@ -62,11 +62,11 @@ class Sphere:
         should_flip = N.dot(rayDiff).lt(0).double()
         rayDiff = rayDiff * (1 - 2 * should_flip)
         diffCol = self.diffusecolor(M)
-        color = raytrace(args, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * diffCol * 2
+        color = raytrace(args, getRand, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * diffCol * 2
 
         if self.mirror is not None:
             rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-            color = ( color * (self.mirror * -1 + 1) + raytrace(args, newO, rayRefl, bounce + 1) * self.mirror * rayDiff.dot(N) * 2 )
+            color = ( color * (self.mirror * -1 + 1) + raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror * rayDiff.dot(N) * 2 )
         return color
 
 
@@ -76,12 +76,11 @@ class CheckeredSphere(Sphere):
         return self.diffuse * checker.double() + rgb(0.8, 0.7, 0.7) * (1 - checker.double())
 
 class Light(Sphere):
-    def light(self, args, O, D, d, bounce):
+    def light(self, *args, **kargs):
         return self.diffuse
 
 
-
-def raytrace(args, O, D, bounce = 0):
+def raytrace(args, getRand, O, D, bounce = 0):
     # O is the ray origin, D is the normalized ray direction
     # scene is a list of Sphere objects (see below)
     # bounce is the number of the bounce, starting at zero for camera rays
@@ -101,38 +100,35 @@ def raytrace(args, O, D, bounce = 0):
             Oc = O.extract(hit)
             dc = extract(hit, d)
             Dc = D.extract(hit)
-            cc = s.light(args, Oc, Dc, dc, bounce)
+            cc = s.light(args, getRand, Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
     return color
 
-
-mcmc_generator = []
-
-def getRand(s):
-    global mcmc_generator
-    
-    r = rand(s.shape)
-    mcmc_generator += [r]
-    return r
-
 def pathtrace(args, S, pixels):
-    global mcmc_generator
+
     img = 0
 
     x_sz = (S[2] - S[0]) / args.w
     y_sz = (S[3] - S[1]) / args.h
 
-    mcmc_best = list(mcmc_generator)
+    mcmc_best = []
 
     total_time = 0
+    mcmc_generator = []
 
     for i in itertools.count(1,1):
         tPass = time.time()
         
         mcmc_generator = []
 
+        def getRand(s):
+            r = rand(s.shape)
+            mcmc_generator.append([r])
+            return r
+        
+
         pixel_mod = pixels + vec3(getRand(pixels.x) * x_sz, getRand(pixels.y) * y_sz, 0)
-        sub_img = raytrace(args, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
+        sub_img = raytrace(args, getRand, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
 
         img = sub_img + img
 
@@ -160,8 +156,6 @@ def render(args):
 
     if not os.path.exists(args.SAVE_DIR):
         os.makedirs(args.SAVE_DIR)
-
-
 
     args.w = args.WIDTH * args.OVERSAMPLE
     args.h = args.HEIGHT * args.OVERSAMPLE
