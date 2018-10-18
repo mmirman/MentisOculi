@@ -5,14 +5,16 @@ from helpers import *
 import os
 import time
 import math
+import itertools
 
 from functools import reduce
 
 def save_img(args, color, nm):
-    print("saving: ", nm)
+    file_nm = os.path.join(args.SAVE_DIR,nm)
+    print("\tsaving:", file_nm)
     color = color * 20
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
-    Image.merge("RGB", rgb).save(os.path.join(args.SAVE_DIR,nm))
+    Image.merge("RGB", rgb).save(file_nm)
 
 
 def random_spherical(u, v):
@@ -116,20 +118,37 @@ def pathtrace(args, S, pixels):
     global mcmc_generator
     img = 0
 
-    mcmc_best = list(mcmc_generator)
     x_sz = (S[2] - S[0]) / args.w
     y_sz = (S[3] - S[1]) / args.h
 
-    for i in iter(int, 1):
+    mcmc_best = list(mcmc_generator)
+
+    tInitial = time.time()
+    for i in itertools.count(1,1):
+
+        tPass = time.time()
+        
         mcmc_generator = []
-
-
 
         pixel_mod = pixels + vec3(getRand(pixels.x) * x_sz, getRand(pixels.y) * y_sz, 0)
         sub_img = raytrace(args, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
 
         img = sub_img + img
 
+        tCurr = time.time()
+        total_time = tCurr - tInitial
+        pass_time = tCurr - tPass
+
+        print("\n\nPass:", i)
+        print("\tElapsed Time:", total_time)
+        print("\tPass Time:", pass_time)
+        print("\tAvg Pass Time:",  total_time / i)
+
+        print("\n\tTotal Samples:", args.w * args.h * i)
+        print("\tSamples Per Pixel:", args.OVERSAMPLE * i)
+
+        print("\n\tsamp/sec:", (args.w * args.h) / pass_time )
+        print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
 
         save_img(args, sub_img, "sub_img"+str(i)+".png")
         save_img(args, img / (i + 1), "img"+str(i)+".png")
@@ -141,7 +160,7 @@ def render(args):
     if not os.path.exists(args.SAVE_DIR):
         os.makedirs(args.SAVE_DIR)
 
-    t0 = time.time()
+
 
     args.w = args.WIDTH * args.OVERSAMPLE
     args.h = args.HEIGHT * args.OVERSAMPLE
@@ -154,7 +173,6 @@ def render(args):
     Q = vec3(x, y, 0)
 
     color = pathtrace(args, S, Q)
-    print("Took", time.time() - t0)
 
     save_img(color, "img.png")
 
