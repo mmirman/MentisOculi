@@ -8,27 +8,12 @@ import math
 
 from functools import reduce
 
-SAVE_DIR="out_met"
-OVERSAMPLE = 8
-WIDTH = 400
-HEIGHT = 300
-(w, h) = (WIDTH * OVERSAMPLE, HEIGHT * OVERSAMPLE)
-
-if not os.path.exists(SAVE_DIR):
-    os.makedirs(SAVE_DIR)
-
 def save_img(color, nm):
     print("saving: ", nm)
     color = color * 20
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((h, w)).float() * 255), "F").resize((WIDTH, HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
     Image.merge("RGB", rgb).save(os.path.join(SAVE_DIR,nm))
 
-L = vec3(1.5, 0.5, 0.8)        # Point light position
-E = vec3(0., 0.35, -1.)     # Eye position
-FARAWAY = 1.0e36            # an implausibly huge distance
-MAX_BOUNCE = 10
-NUDGE = 0.0000001
-STOP_PROB = 0.7
 
 def raytrace(O, D, scene, bounce = 0):
     # O is the ray origin, D is the normalized ray direction
@@ -149,6 +134,14 @@ class Light(Sphere):
     def light(self, O, D, d, scene, bounce):
         return self.diffuse
 
+
+SAVE_DIR="out_met"
+OVERSAMPLE = 8
+WIDTH = 400
+HEIGHT = 300
+
+
+
 scene = [
     Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1), 0, 0, 0),
     Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.99, 0.99), 0.0, phong_pow = 1, phong_col=rgb(0,0,0)),
@@ -157,10 +150,18 @@ scene = [
     CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.95, .95, .95), 0, phong_pow = 1, phong_col=rgb(0,0,0)),
     ]
 
+E = vec3(0., 0.35, -1.)     # Eye position
+FARAWAY = 1.0e36            # an implausibly huge distance
+MAX_BOUNCE = 10
+NUDGE = 0.0000001
+STOP_PROB = 0.7
+
+if not os.path.exists(SAVE_DIR):
+    os.makedirs(SAVE_DIR)
+
 t0 = time.time()
 
-
-
+(w, h) = (WIDTH * OVERSAMPLE, HEIGHT * OVERSAMPLE)
 r = float(WIDTH) / HEIGHT
 # Screen coordinates: x0, y0, x1, y1.
 S = (-1., 1. / r + .25, 1., -1. / r + .25)
