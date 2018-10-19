@@ -12,7 +12,7 @@ from functools import reduce
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    color = color * 20
+    color = color
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
     Image.merge("RGB", rgb).save(file_nm)
 
@@ -185,7 +185,7 @@ def getPermuteRand(top_shape, mcmc_best):
                 
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
 
-                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.001)
+                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.005)
                 newRands[(1 - bestMask) & mask] = rand(size = newRands[(1 - bestMask) & mask].shape)
 
                 r = newRands[mask]
@@ -304,8 +304,8 @@ def pathtrace(args, S, pixels):
 
     total_time = 0
         
-    restart_freq = 100
-    num_mc_samples = 50
+    restart_freq = 40
+    num_mc_samples = 20
 
     x_sz = (S[2] - S[0])
     y_sz = (S[3] - S[1])
@@ -356,9 +356,6 @@ def pathtrace(args, S, pixels):
 
         im_locs = best_samp_coords * vec3(args.w, args.h, 0)
         im_locs = [im_locs.y.long(), im_locs.x.long()]
-        print("ImLocs:", im_locs)
-        print("sc.x:", best_samp_coords.x)
-        print("sc.y:", best_samp_coords.y)
 
         img.x.reshape(args.h, args.w)[im_locs] += estimate.x
         img.y.reshape(args.h, args.w)[im_locs] += estimate.y
