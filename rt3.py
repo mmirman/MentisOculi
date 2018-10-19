@@ -123,7 +123,6 @@ def raytrace(args, getRand, O, D, bounce = 0):
     return color
 
 
-
 def getNewRand(getRand, mask, curr_idx):
     if mask.all():
         return getRand
@@ -152,6 +151,7 @@ def getMCRand(top_shape):
 
 def getPermuteRand(top_shape, mcmc_best):
     mcmc_generator = {}
+    num_calls = {}
     
     def getRand(arg = None):
             if arg is None:
@@ -160,8 +160,15 @@ def getPermuteRand(top_shape, mcmc_best):
                 idx = []
             else:
                 maskShape,mask, idx = arg
+            tidx = tuple(idx)    
+            
+            if tidx not in num_calls:
+                num_calls[tidx] = 0
+            else:
+                num_calls[tidx] += 1
+            tidx = tuple([num_calls[tidx]] + idx)
 
-            if tuple(idx) not in mcmc_best:
+            if tidx not in mcmc_best:
                 r = rand(maskShape)
             else: 
                 # could be done way quicker in handwritten cuda.
@@ -169,7 +176,7 @@ def getPermuteRand(top_shape, mcmc_best):
                 
                 # can theoretically optimize this a bit here by using a subset of top_shape corresponding to the max in mask
                 
-                bestIndxs, bestRand = mcmc_best[tuple(idx)]
+                bestIndxs, bestRand = mcmc_best[tidx]
 
                 bestMask = lzeros(top_shape, dtype=torch.uint8)
                 bestMask[bestIndxs] = 1
@@ -178,16 +185,16 @@ def getPermuteRand(top_shape, mcmc_best):
                 
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
 
-                newRands[bestMask] = bestRand 
-                newRands[relevantBestMask] += torch.normal(mean = 0.0, std = 0.1 * newRands[relevantBestMask])
+                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.001)
                 newRands[(1 - bestMask) & mask] = rand(size = newRands[(1 - bestMask) & mask].shape)
 
                 r = newRands[mask]
                 circ(r)
 
-            mcmc_generator[tuple(idx)] = (mask.nonzero().cpu(),r)
+            mcmc_generator[tidx] = (mask.nonzero().cpu(),r)
             return r
 
+    
     return getRand, mcmc_generator
 
 def mixSamples(top_shape, mix, sa, sb):
@@ -297,8 +304,8 @@ def pathtrace(args, S, pixels):
 
     total_time = 0
         
-    restart_freq = 50
-    num_mc_samples = 20
+    restart_freq = 100
+    num_mc_samples = 50
 
     x_sz = (S[2] - S[0])
     y_sz = (S[3] - S[1])
@@ -319,6 +326,16 @@ def pathtrace(args, S, pixels):
             best_sample_params = new_sample_params
 
             estimate = multiSamp(args, samp_shape, samp_cast, num_mc_samples)
+
+
+            im_locs = best_samp_coords * vec3(args.w, args.h, 0)
+            im_locs = [im_locs.y.long(), im_locs.x.long()]
+            estim = vec3u(zeros(img_shape))
+            estim.x.reshape(args.h, args.w)[im_locs] += estimate.x
+            estim.y.reshape(args.h, args.w)[im_locs] += estimate.y
+            estim.z.reshape(args.h, args.w)[im_locs] += estimate.z
+
+            save_img(args, estim, "estimate"+str(i)+".png")
             continue
 
         tPass = time.time()
@@ -338,12 +355,14 @@ def pathtrace(args, S, pixels):
         # img[best_sample_coords] += estimate
 
         im_locs = best_samp_coords * vec3(args.w, args.h, 0)
-        im_locs.x.floor_()
-        im_locs.y.floor_()
-        
-        img.x.view([args.w, args.h])[[im_locs.x, im_locs.y]] += estimate.x
-        img.y.view([args.w, args.h])[[im_locs.x, im_locs.y]] += estimate.y
-        img.z.view([args.w, args.h])[[im_locs.x, im_locs.y]] += estimate.z
+        im_locs = [im_locs.y.long(), im_locs.x.long()]
+        print("ImLocs:", im_locs)
+        print("sc.x:", best_samp_coords.x)
+        print("sc.y:", best_samp_coords.y)
+
+        img.x.reshape(args.h, args.w)[im_locs] += estimate.x
+        img.y.reshape(args.h, args.w)[im_locs] += estimate.y
+        img.z.reshape(args.h, args.w)[im_locs] += estimate.z
 
 
         tCurr = time.time()
@@ -389,7 +408,7 @@ class StaticArgs:
     SAVE_DIR="out_met"
     OVERSAMPLE = 1
     WIDTH = 400
-    HEIGHT = 300
+    HEIGHT = 400
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
