@@ -12,7 +12,7 @@ from functools import reduce
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    color = color
+    color = color * 10
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
     Image.merge("RGB", rgb).save(file_nm)
 
@@ -72,14 +72,14 @@ class Sphere:
 
         if self.mirror is not None:
             diffcol = self.diffusecolor(M)
-            refl_prob = self.mirror / (self.mirror + diffcol.luminance())if isinstance(self.mirror, numbers.Number) else self.mirror.luminance()
+            refl_prob = self.mirror / (self.mirror + diffcol.luminance()) if isinstance(self.mirror, numbers.Number) else self.mirror.luminance()
             reflect = getRand() <= refl_prob
             diffuse = 1 - reflect
             
             
-            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / refl_prob) if tr.sum(diffuse) > 0 else rgb(0,0,0)
+            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / (1 - refl_prob)) if tr.sum(diffuse) > 0 else rgb(0,0,0)
 
-            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / (1 - refl_prob)) if tr.sum(reflect) > 0 else rgb(0,0,0)
+            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / refl_prob) if tr.sum(reflect) > 0 else rgb(0,0,0)
 
             color = colorDiff.place(diffuse) + colorRefl.place(reflect)
         else:
@@ -304,8 +304,8 @@ def pathtrace(args, S, pixels):
 
     total_time = 0
         
-    restart_freq = 40
-    num_mc_samples = 20
+    restart_freq = 20
+    num_mc_samples = 50
 
     x_sz = (S[2] - S[0])
     y_sz = (S[3] - S[1])
@@ -403,9 +403,9 @@ def render(args):
 
 class StaticArgs:
     SAVE_DIR="out_met"
-    OVERSAMPLE = 1
+    OVERSAMPLE = 4
     WIDTH = 400
-    HEIGHT = 400
+    HEIGHT = 300
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
