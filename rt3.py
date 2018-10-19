@@ -12,7 +12,7 @@ from functools import reduce
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    color = color * 5
+    color = color * 8
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
     Image.merge("RGB", rgb).save(file_nm)
 
@@ -166,7 +166,7 @@ def getPermuteRand(top_shape, mcmc_best):
                 num_calls[tidx] = 0
             else:
                 num_calls[tidx] += 1
-            tidx = tuple([num_calls[tidx]] + idx)
+            tidx = tuple(idx + [num_calls[tidx]])
 
             if tidx not in mcmc_best:
                 r = rand(maskShape)
@@ -184,8 +184,8 @@ def getPermuteRand(top_shape, mcmc_best):
                 relevantBestMask = bestMask & mask 
                 
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
-
-                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.001)
+                
+                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.003)
                 newRands[(1 - bestMask) & mask] = rand(size = newRands[(1 - bestMask) & mask].shape)
 
                 r = newRands[mask]
@@ -304,7 +304,7 @@ def pathtrace(args, S, pixels):
 
     total_time = 0
         
-    restart_freq = 20
+    restart_freq = 30
     num_mc_samples = 20
 
     x_sz = (S[2] - S[0])
@@ -352,21 +352,29 @@ def pathtrace(args, S, pixels):
         accept_prob = one_or_div(new_samp.luminance(), best_sample.luminance())
         accept_prob.clamp_(0,1)
 
+        old_best_samp_coords = best_samp_coords
+        old_best_sample = best_sample
+
         should_accept = (accept_var <= accept_prob).double()
         best_sample_params = mixSamples(samp_shape, should_accept, new_sample_params, best_sample_params)
         best_sample = new_samp * should_accept + best_sample * (1 - should_accept)
         best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
+
+        #worst_samp_coords = samp_coords * (1 - should_accept) + best_samp_coords * should_accept
         
         #deposit estimate at best_sample location
         # img[best_sample_coords] += estimate
 
-        im_locs = best_samp_coords * vec3(args.w, args.h, 0)
-        im_locs = [im_locs.y.long(), im_locs.x.long()]
+        def addS(s, p):
+            
+            im_locs = s * vec3(args.w, args.h, 0)
+            im_locs = [im_locs.y.long(), im_locs.x.long()]
 
-        img.x.reshape(args.h, args.w)[im_locs] += estimate.x
-        img.y.reshape(args.h, args.w)[im_locs] += estimate.y
-        img.z.reshape(args.h, args.w)[im_locs] += estimate.z
-
+            img.x.reshape(args.h, args.w)[im_locs] += p.x
+            img.y.reshape(args.h, args.w)[im_locs] += p.y
+            img.z.reshape(args.h, args.w)[im_locs] += p.z
+        addS(old_best_samp_coords, estimate * (1 - accept_prob) )
+        addS(samp_coords, estimate * accept_prob)
 
         tCurr = time.time()
         pass_time = tCurr - tPass
@@ -406,10 +414,10 @@ def render(args):
 
 
 class StaticArgs:
-    SAVE_DIR="out_met"
-    OVERSAMPLE = 1
-    WIDTH = 400
-    HEIGHT = 300
+    SAVE_DIR="out_erpt_red"
+    OVERSAMPLE = 2
+    WIDTH = 800
+    HEIGHT = 600
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
