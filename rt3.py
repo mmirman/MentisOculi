@@ -139,7 +139,18 @@ def getNewRand(getRand, mask, curr_idx):
 def circ(a):
     a.sub_(a.floor())
 
-def getOriginalRand(top_shape, mcmc_best):
+def getMCRand(top_shape):
+    def getRand(arg = None):
+        if arg is None:
+            mask = lones(top_shape, dtype=torch.uint8)
+            maskShape = top_shape
+            idx = []
+        else:
+            maskShape,mask, idx = arg
+        return rand(maskShape)
+    return getRand
+
+def getPermuteRand(top_shape, mcmc_best):
     mcmc_generator = {}
     
     def getRand(arg = None):
@@ -209,45 +220,131 @@ def mixSamples(top_shape, mix, sa, sb):
             res[k] = (abM.nonzero().cpu(), (aRes * mix + bRes * (1 - mix))[abM])
     return res
 
-def pathtrace(args, S, pixels):
-
-    img = 0
-
+def shoot(args, getRand, S, pixels):
     x_sz = (S[2] - S[0]) / args.w
     y_sz = (S[3] - S[1]) / args.h
+    
+    pixel_mod = pixels + vec3(getRand() * x_sz, getRand() * y_sz, 0)    
+    return raytrace(args, getRand, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
 
-    best_sample_params = {}
-    best_img = vec3(-10000, -10000, -10000)
+
+def multiSamp(args, samp_shape, samp_cast, num_mc_samples):
     total_time = 0
-    
+    estimate = vec3u(zeros(samp_shape))
+    for i in range(1,num_mc_samples + 1):
+        tPass = time.time()
+
+        mcRand = getMCRand(samp_shape)
+        new_estimate = raytrace(args, mcRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
+        estimate = (new_estimate / num_mc_samples)  + estimate
+
+        tCurr = time.time()
+        pass_time = tCurr - tPass
+        total_time += pass_time
+
+        print("\nMCPass:", i)
+        print("\tElapsed Time:", total_time)
+        print("\tPass Time:", pass_time)
+        print("\tAvg Pass Time:",  total_time / i)
+
+        print("\tTotal Samples:", args.w * args.h * i)
+        print("\tSamples Per Pixel:", args.OVERSAMPLE * i)
+
+        print("\tsamp/sec:", (args.w * args.h) / pass_time )
+        print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
+
+    return estimate
+
+def mctrace(args, S, pixels, k):
     top_shape = pixels.x.shape
-    
+    img = 0
+    total_time = 0
+    for i in range(1,k+1):
+        tPass = time.time()
+        getRand = getMCRand(top_shape)
+        img = shoot(args, getRand, S, pixels) + img
+        
+        tCurr = time.time()
+        pass_time = tCurr - tPass
+        total_time += pass_time
+
+        print("\nMCPass:", i)
+        print("\tElapsed Time:", total_time)
+        print("\tPass Time:", pass_time)
+        print("\tAvg Pass Time:",  total_time / i)
+
+        print("\tTotal Samples:", args.w * args.h * i)
+        print("\tSamples Per Pixel:", args.OVERSAMPLE * i)
+
+        print("\tsamp/sec:", (args.w * args.h) / pass_time )
+        print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
+
+    img /= k
+    return img
+
+def one_or_div(a,b):
+    if isinstance(b, numbers.Number):
+        return a / b if b > 0 else 1
+    gtz = b > 0
+    return torch.where(gtz, a / torch.where(gtz, b, ones(b.shape)) , ones(b.shape))
+
+def pathtrace(args, S, pixels):
+
+    samp_shape = pixels.x.shape
+    img_shape = pixels.x.shape
+
+    img = vec3u(zeros(img_shape))
+
+    total_time = 0
+        
+    restart_freq = 50
+    num_mc_samples = 20
+
+    x_sz = (S[2] - S[0])
+    y_sz = (S[3] - S[1])
+
     for i in itertools.count(1,1):
-        if i % 20 == 0:
+        restart = i % restart_freq == 1     
+        if restart:
+            best_sample = vec3u(zeros(samp_shape))
             best_sample_params = {}
 
-        tPass = time.time()
-        
-        getRand, new_sample_params = getOriginalRand(top_shape, best_sample_params)
-        
-        pixel_mod = pixels + vec3(getRand() * x_sz, getRand() * y_sz, 0)
-        sub_img = raytrace(args, getRand, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
+        getRand, new_sample_params = getPermuteRand(samp_shape, best_sample_params)
+        samp_coords = vec3(getRand(), getRand(), 0)
 
-        if len(best_sample_params.keys()) > 0:
-            accept_var = rand(top_shape)
-            accept_prob = (sub_img.luminance() / best_img.luminance()))
-            accept_prob.clamp_(0,1)
-            
-            should_accept = (accept_var <= accept_prob).double()
-        
-            best_sample_params = mixSamples(top_shape, should_accept, new_sample_params, best_sample_params)
-            best_img = sub_img * should_accept + best_img * (1 - should_accept)
-        else:
+        samp_cast = vec3(S[0], S[1], 0) + samp_coords * vec3(x_sz, y_sz, 0)
+
+        if restart:
+            best_samp_coords = samp_coords
             best_sample_params = new_sample_params
-            best_img = sub_img
+
+            estimate = multiSamp(args, samp_shape, samp_cast, num_mc_samples)
+            continue
+
+        tPass = time.time()
+
+        new_samp = raytrace(args, getRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
+
+        accept_var = rand(samp_shape)
+        accept_prob = one_or_div(new_samp.luminance(), best_sample.luminance())
+        accept_prob.clamp_(0,1)
+
+        should_accept = (accept_var <= accept_prob).double()
+        best_sample_params = mixSamples(samp_shape, should_accept, new_sample_params, best_sample_params)
+        best_sample = new_samp * should_accept + best_sample * (1 - should_accept)
+        best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
         
+        #deposit estimate at best_sample location
+        # img[best_sample_coords] += estimate
+
+        im_locs = best_samp_coords * vec3(args.w, args.h, 0)
+        im_locs.x.floor_()
+        im_locs.y.floor_()
         
-        img = sub_img + img
+        img.x.view([args.w, args.h])[[im_locs.x, im_locs.y]] += estimate.x
+        img.y.view([args.w, args.h])[[im_locs.x, im_locs.y]] += estimate.y
+        img.z.view([args.w, args.h])[[im_locs.x, im_locs.y]] += estimate.z
+
 
         tCurr = time.time()
         pass_time = tCurr - tPass
@@ -264,7 +361,6 @@ def pathtrace(args, S, pixels):
         print("\n\tsamp/sec:", (args.w * args.h) / pass_time )
         print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
 
-        save_img(args, sub_img, "sub_img"+str(i)+".png")
         save_img(args, img / (i + 1), "img"+str(i)+".png")
         save_img(args, img / (i + 1), "img.png")
 
@@ -291,7 +387,7 @@ def render(args):
 
 class StaticArgs:
     SAVE_DIR="out_met"
-    OVERSAMPLE = 4
+    OVERSAMPLE = 1
     WIDTH = 400
     HEIGHT = 300
 
