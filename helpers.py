@@ -126,5 +126,5 @@ class vec3(object):
 rgb = vec3
 
 
-def vec3u(x):
-    return vec3(x,x,x)
+def vec3u(x,s):
+    return vec3(ones(s),ones(s),ones(s)) * x

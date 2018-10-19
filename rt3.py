@@ -12,7 +12,7 @@ from functools import reduce
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    color = color * 10
+    color = color * 5
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
     Image.merge("RGB", rgb).save(file_nm)
 
@@ -84,14 +84,13 @@ class Sphere:
             color = colorDiff.place(diffuse) + colorRefl.place(reflect)
         else:
             color = self.sampleDiffuse(args, getRand, M, N, newO, bounce)
-
         return color
 
 
 class CheckeredSphere(Sphere):
     def diffusecolor(self, M):
         checker = ((M.x * 2).int() % 2) == ((M.z * 2).int() % 2)
-        return self.diffuse * checker.double() + rgb(0.8, 0.7, 0.7) * (1 - checker.double())
+        return self.diffuse * checker.double() + rgb(0.8, 0.6, 0.6) * (1 - checker.double())
 
 class Light(Sphere):
     def light(self, *args, **kargs):
@@ -120,6 +119,7 @@ def raytrace(args, getRand, O, D, bounce = 0):
             Dc = D.extract(hit)
             cc = s.light(args, getNewRand(getRand, hit, i), Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
+
     return color
 
 
@@ -185,7 +185,7 @@ def getPermuteRand(top_shape, mcmc_best):
                 
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
 
-                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.005)
+                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.001)
                 newRands[(1 - bestMask) & mask] = rand(size = newRands[(1 - bestMask) & mask].shape)
 
                 r = newRands[mask]
@@ -237,13 +237,13 @@ def shoot(args, getRand, S, pixels):
 
 def multiSamp(args, samp_shape, samp_cast, num_mc_samples):
     total_time = 0
-    estimate = vec3u(zeros(samp_shape))
+    estimate = vec3u(0,samp_shape)
     for i in range(1,num_mc_samples + 1):
         tPass = time.time()
 
         mcRand = getMCRand(samp_shape)
         new_estimate = raytrace(args, mcRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
-        estimate = (new_estimate / num_mc_samples)  + estimate
+        estimate = (new_estimate / float(num_mc_samples))  + estimate
 
         tCurr = time.time()
         pass_time = tCurr - tPass
@@ -300,20 +300,24 @@ def pathtrace(args, S, pixels):
     samp_shape = pixels.x.shape
     img_shape = pixels.x.shape
 
-    img = vec3u(zeros(img_shape))
+    img = vec3u(0, img_shape)
 
     total_time = 0
         
     restart_freq = 20
-    num_mc_samples = 50
+    num_mc_samples = 20
 
     x_sz = (S[2] - S[0])
     y_sz = (S[3] - S[1])
 
+
+    m = 0
+    k = 0
+    mcestim = vec3u(0, img_shape)
     for i in itertools.count(1,1):
         restart = i % restart_freq == 1     
         if restart:
-            best_sample = vec3u(zeros(samp_shape))
+            best_sample = vec3u(0, samp_shape)
             best_sample_params = {}
 
         getRand, new_sample_params = getPermuteRand(samp_shape, best_sample_params)
@@ -322,21 +326,23 @@ def pathtrace(args, S, pixels):
         samp_cast = vec3(S[0], S[1], 0) + samp_coords * vec3(x_sz, y_sz, 0)
 
         if restart:
+            k += 1
             best_samp_coords = samp_coords
             best_sample_params = new_sample_params
 
             estimate = multiSamp(args, samp_shape, samp_cast, num_mc_samples)
 
-
             im_locs = best_samp_coords * vec3(args.w, args.h, 0)
             im_locs = [im_locs.y.long(), im_locs.x.long()]
-            estim = vec3u(zeros(img_shape))
+            estim = vec3u(0, img_shape)
             estim.x.reshape(args.h, args.w)[im_locs] += estimate.x
             estim.y.reshape(args.h, args.w)[im_locs] += estimate.y
             estim.z.reshape(args.h, args.w)[im_locs] += estimate.z
 
-            save_img(args, estim, "estimate"+str(i)+".png")
+            mcestim = estim + mcestim
+            save_img(args, mcestim / k, "estimate"+str(k)+".png")
             continue
+        m += 1
 
         tPass = time.time()
 
@@ -377,8 +383,8 @@ def pathtrace(args, S, pixels):
         print("\n\tsamp/sec:", (args.w * args.h) / pass_time )
         print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
 
-        save_img(args, img / (i + 1), "img"+str(i)+".png")
-        save_img(args, img / (i + 1), "img.png")
+        save_img(args, img / m, "img"+str(i)+".png")
+        save_img(args, img / m, "img.png")
 
 
 def render(args):
@@ -396,30 +402,28 @@ def render(args):
 
     Q = vec3(x, y, 0)
 
-    color = pathtrace(args, S, Q)
-
-    save_img(color, "img.png")
+    pathtrace(args, S, Q)
 
 
 class StaticArgs:
     SAVE_DIR="out_met"
-    OVERSAMPLE = 4
+    OVERSAMPLE = 1
     WIDTH = 400
     HEIGHT = 300
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
-        Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.99, 0.99)),
+        Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.96, 0.99)),
         Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.5, 0.95, 1)),
         Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7),
-        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.95, .95, .95)),
+        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.96, .99, .99)),
     ]
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 6
+    MAX_BOUNCE = 12
     NUDGE = 0.0000001
-    STOP_PROB = 0.7
+    STOP_PROB = 0.8
 
     NEAREST = 0.000000001
 
