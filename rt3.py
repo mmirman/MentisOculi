@@ -199,8 +199,6 @@ def getPermuteRand(top_shape, mcmc_best):
                 bestMask = lzeros(top_shape, dtype=torch.uint8)
                 bestMask[bestIndxs] = 1
                 
-                relevantBestMask = bestMask & mask 
-                
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
                 pdbAssert(bestMask.sum() == product(bestRand.shape))
                 newRands[bestMask] = torch.normal(mean = bestRand, std = 0.003)
