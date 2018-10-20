@@ -6,8 +6,13 @@ import os
 import time
 import math
 import itertools
+import pdb
 
 from functools import reduce
+
+def pdbAssert(cond):
+    if not cond:
+        pdb.set_trace()
 
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
@@ -76,10 +81,9 @@ class Sphere:
             reflect = getRand() <= refl_prob
             diffuse = 1 - reflect
             
-            
-            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / (1 - refl_prob)) if tr.sum(diffuse) > 0 else rgb(0,0,0)
+            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / (1 - refl_prob)) if diffuse.any() else rgb(0,0,0)
 
-            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / refl_prob) if tr.sum(reflect) > 0 else rgb(0,0,0)
+            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / refl_prob) if reflect.any() else rgb(0,0,0)
 
             color = colorDiff.place(diffuse) + colorRefl.place(reflect)
         else:
@@ -106,16 +110,20 @@ def raytrace(args, getRand, O, D, bounce = 0):
         return color
 
     distances = [dtype(s.intersect(args, O, D)) for s in args.scene]
-    nearest = reduce(tr.min, distances)
+    nearest, nearest_idx = tr.min(torch.stack(distances), dim=0)
 
-    for (s, d, i) in zip(args.scene, distances, range(len(args.scene))):
-        hit = (nearest < args.FARAWAY) & (d == nearest) & (d > args.NUDGE) # d == nearest is hacky af
+    for (s, i) in zip(args.scene, range(len(args.scene))):
+        hit = (nearest < args.FARAWAY) & (nearest_idx == i) & (nearest > args.NUDGE) # d == nearest is hacky af
         probStop = args.STOP_PROB if bounce >= 1 else 0
-        hit = hit & (getRand() >= probStop)
+        rd = getRand()
+        pdbAssert( rd.shape == hit.shape)
+        rgp = (rd >= probStop)
 
-        if tr.sum(hit).data > 0:
+        hit = hit & rgp
+
+        if hit.any():
             Oc = O.extract(hit)
-            dc = extract(hit, d)
+            dc = extract(hit, nearest)
             Dc = D.extract(hit)
             cc = s.light(args, getNewRand(getRand, hit, i), Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
@@ -124,13 +132,19 @@ def raytrace(args, getRand, O, D, bounce = 0):
 
 
 def getNewRand(getRand, mask, curr_idx):
+    pdbAssert( (mask <= 1).all() )
+    pdbAssert( (mask >= 0).all() )
+
     if mask.all():
         return getRand
+    mshape = [int(mask.sum(dtype=torch.long))]
     def newRand(arg = None):
         if arg is None:
-            arg = (mask[mask].shape, mask, [curr_idx])
+            arg = (mshape, mask, [curr_idx])
         else:
             (sN, hitN, sub_idx) = arg
+            pdbAssert( (hitN <= 1).all() )
+            pdbAssert( (hitN >= 0).all() )
             arg = (sN, place(mask, hitN), [curr_idx] + sub_idx)
         return getRand(arg)
     return newRand
@@ -146,12 +160,15 @@ def getMCRand(top_shape):
             idx = []
         else:
             maskShape,mask, idx = arg
-        return rand(maskShape)
+        return rand(size = maskShape)
     return getRand
 
 def getPermuteRand(top_shape, mcmc_best):
     mcmc_generator = {}
     num_calls = {}
+
+    for k,v in mcmc_best.items():  # save old random values for when new things get mixed in
+        mcmc_generator[k] = v
     
     def getRand(arg = None):
             if arg is None:
@@ -159,7 +176,7 @@ def getPermuteRand(top_shape, mcmc_best):
                 maskShape = top_shape
                 idx = []
             else:
-                maskShape,mask, idx = arg
+                maskShape, mask, idx = arg
             tidx = tuple(idx)    
             
             if tidx not in num_calls:
@@ -169,7 +186,8 @@ def getPermuteRand(top_shape, mcmc_best):
             tidx = tuple(idx + [num_calls[tidx]])
 
             if tidx not in mcmc_best:
-                r = rand(maskShape)
+                r = rand(size = maskShape)
+                pdbAssert(product(r.shape) == product(maskShape))
             else: 
                 # could be done way quicker in handwritten cuda.
                 # sadly, pseudorandoms are slow enough that we want to do as few of them as possible.
@@ -184,16 +202,16 @@ def getPermuteRand(top_shape, mcmc_best):
                 relevantBestMask = bestMask & mask 
                 
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
-                
+                pdbAssert(bestMask.sum() == product(bestRand.shape))
                 newRands[bestMask] = torch.normal(mean = bestRand, std = 0.003)
                 newRands[(1 - bestMask) & mask] = rand(size = newRands[(1 - bestMask) & mask].shape)
 
                 r = newRands[mask]
+                pdbAssert(product(r.shape) == product(maskShape))
                 circ(r)
-
+                pdbAssert(product(r.shape) == product(maskShape))
             mcmc_generator[tidx] = (mask.nonzero().cpu(),r)
             return r
-
     
     return getRand, mcmc_generator
 
@@ -202,13 +220,18 @@ def mixSamples(top_shape, mix, sa, sb):
             
     for k in set().union(sa.keys(), sb.keys()):
         if k not in sa.keys():
-            res[k] = sb[k] # what are these actually?
+            res[k] = sb[k]
         elif k not in sb.keys():
             res[k] = sa[k]
         else:
             aI, aR = sa[k]
-            bI, bR = sb[k]
+            pdbAssert(len(aR.shape) == 1)
+            pdbAssert(product(aI.shape) == product(aR.shape))
             
+            bI, bR = sb[k]
+            pdbAssert(len(bR.shape) == 1)
+            pdbAssert(product(bI.shape) == product(bR.shape))
+
             aM = lzeros(top_shape, dtype=torch.uint8)
             bM = lzeros(top_shape, dtype=torch.uint8)
             
@@ -289,11 +312,11 @@ def mctrace(args, S, pixels, k):
     img /= k
     return img
 
-def one_or_div(a,b):
+def one_or_div(a,b, o = 1):
     if isinstance(b, numbers.Number):
         return a / b if b > 0 else 1
     gtz = b > 0
-    return torch.where(gtz, a / torch.where(gtz, b, ones(b.shape)) , ones(b.shape))
+    return torch.where(gtz, a / torch.where(gtz, b, ones(b.shape) * o) , ones(b.shape) * o)
 
 def pathtrace(args, S, pixels):
 
@@ -304,8 +327,6 @@ def pathtrace(args, S, pixels):
 
     total_time = 0
         
-    restart_freq = 30
-    num_mc_samples = 20
 
     x_sz = (S[2] - S[0])
     y_sz = (S[3] - S[1])
@@ -315,7 +336,7 @@ def pathtrace(args, S, pixels):
     k = 0
     mcestim = vec3u(0, img_shape)
     for i in itertools.count(1,1):
-        restart = i % restart_freq == 1     
+        restart = i % args.restart_freq == 1     
         if restart:
             best_sample = vec3u(0, samp_shape)
             best_sample_params = {}
@@ -330,7 +351,7 @@ def pathtrace(args, S, pixels):
             best_samp_coords = samp_coords
             best_sample_params = new_sample_params
 
-            estimate = multiSamp(args, samp_shape, samp_cast, num_mc_samples)
+            estimate = multiSamp(args, samp_shape, samp_cast, args.num_mc_samples)
 
             im_locs = best_samp_coords * vec3(args.w, args.h, 0)
             im_locs = [im_locs.y.long(), im_locs.x.long()]
@@ -352,29 +373,21 @@ def pathtrace(args, S, pixels):
         accept_prob = one_or_div(new_samp.luminance(), best_sample.luminance())
         accept_prob.clamp_(0,1)
 
-        old_best_samp_coords = best_samp_coords
-        old_best_sample = best_sample
-
-        should_accept = (accept_var <= accept_prob).double()
-        best_sample_params = mixSamples(samp_shape, should_accept, new_sample_params, best_sample_params)
-        best_sample = new_samp * should_accept + best_sample * (1 - should_accept)
-        best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
-
-        #worst_samp_coords = samp_coords * (1 - should_accept) + best_samp_coords * should_accept
-        
-        #deposit estimate at best_sample location
-        # img[best_sample_coords] += estimate
-
         def addS(s, p):
-            
             im_locs = s * vec3(args.w, args.h, 0)
             im_locs = [im_locs.y.long(), im_locs.x.long()]
 
             img.x.reshape(args.h, args.w)[im_locs] += p.x
             img.y.reshape(args.h, args.w)[im_locs] += p.y
             img.z.reshape(args.h, args.w)[im_locs] += p.z
-        addS(old_best_samp_coords, estimate * (1 - accept_prob) )
-        addS(samp_coords, estimate * accept_prob)
+        addS(best_samp_coords, (best_sample * estimate.luminance()).div_or(best_sample.luminance(), estimate) * (1 - accept_prob) )
+        addS(samp_coords, (new_samp * estimate.luminance()).div_or(new_samp.luminance(), estimate) * accept_prob)
+
+        should_accept = (accept_var <= accept_prob).double()
+        best_sample_params = mixSamples(samp_shape, should_accept, new_sample_params, best_sample_params)
+        best_sample = new_samp * should_accept + best_sample * (1 - should_accept)
+        best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
+
 
         tCurr = time.time()
         pass_time = tCurr - tPass
@@ -414,10 +427,10 @@ def render(args):
 
 
 class StaticArgs:
-    SAVE_DIR="out_erpt_red"
-    OVERSAMPLE = 2
-    WIDTH = 800
-    HEIGHT = 600
+    SAVE_DIR="out_erpt_red_save"
+    OVERSAMPLE = 4
+    WIDTH = 400
+    HEIGHT = 300
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
@@ -434,5 +447,7 @@ class StaticArgs:
     STOP_PROB = 0.8
 
     NEAREST = 0.000000001
+    restart_freq = 30
+    num_mc_samples = 3
 
 render(StaticArgs)

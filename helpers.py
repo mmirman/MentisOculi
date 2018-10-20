@@ -122,8 +122,19 @@ class vec3(object):
         r.z[cond] = self.z
         return r
 
-
+    def div_or(self, b, alt):
+        return vec3(one_or_div(self.x, b, alt.x), one_or_div(self.y, b, alt.y), one_or_div(self.z, b, alt.z))
 rgb = vec3
+
+
+def one_or_div(a,b, o = None):
+    if isinstance(b, numbers.Number):
+        return a / b if b > 0 else 1
+    gtz = b > 0
+
+    if o is None:
+        o = ones(b.shape)
+    return torch.where(gtz, a / torch.where(gtz, b, o) , o)
 
 
 def vec3u(x,s):
