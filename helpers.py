@@ -3,6 +3,13 @@ import os
 import numbers
 import math
 
+import pdb
+
+def pdbAssert(cond):
+    if not cond:
+        pdb.set_trace()
+
+
 if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     print("using cuda")
     cuda_async = True
@@ -17,6 +24,7 @@ if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
     zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
     lzeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device).cuda(async=cuda_async)
+
     eye = lambda *args, **cargs: torch.eye(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
     rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
     randn = lambda *args, **cargs: torch.randn(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
@@ -48,8 +56,10 @@ def cudify(x):
     return x
 
 def place(cond, x):
-    r = lzeros(cond.shape, dtype=torch.uint8)
+    pdbAssert(product(x.shape) == int(cond.sum(dtype=torch.long)))
+    r = cond.new_zeros(size = cond.shape) # TODO:  looks like this is bugging out nondeterministically!
     r[cond] = x
+    pdbAssert(int(r.sum(dtype=torch.long)) == int(x.sum(dtype=torch.long)))
     return r
 
 def extract(cond, x):

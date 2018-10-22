@@ -6,13 +6,14 @@ import os
 import time
 import math
 import itertools
-import pdb
+
 
 from functools import reduce
 
-def pdbAssert(cond):
-    if not cond:
-        pdb.set_trace()
+
+def no_repeats(l):
+    t = l.sort()[0]
+    return not (t[1:] == t[:-1]).any()
 
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
@@ -110,13 +111,12 @@ def raytrace(args, getRand, O, D, bounce = 0):
         return color
 
     distances = [dtype(s.intersect(args, O, D)) for s in args.scene]
-    nearest, nearest_idx = tr.min(torch.stack(distances), dim=0)
+    nearest, nearest_idx = tr.min(tr.stack(distances), dim=0)
 
     for (s, i) in zip(args.scene, range(len(args.scene))):
         hit = (nearest < args.FARAWAY) & (nearest_idx == i) & (nearest > args.NUDGE) # d == nearest is hacky af
         probStop = args.STOP_PROB if bounce >= 1 else 0
         rd = getRand()
-        pdbAssert( rd.shape == hit.shape)
         rgp = (rd >= probStop)
 
         hit = hit & rgp
@@ -132,20 +132,18 @@ def raytrace(args, getRand, O, D, bounce = 0):
 
 
 def getNewRand(getRand, mask, curr_idx):
-    pdbAssert( (mask <= 1).all() )
-    pdbAssert( (mask >= 0).all() )
-
     if mask.all():
         return getRand
-    mshape = [int(mask.sum(dtype=torch.long))]
+    mshape = [int(mask.sum(dtype=tr.long))]
     def newRand(arg = None):
         if arg is None:
             arg = (mshape, mask, [curr_idx])
+            pdbAssert(product(mshape) == int(mask.sum(dtype=tr.long)))
         else:
             (sN, hitN, sub_idx) = arg
-            pdbAssert( (hitN <= 1).all() )
-            pdbAssert( (hitN >= 0).all() )
-            arg = (sN, place(mask, hitN), [curr_idx] + sub_idx)
+            maskN = place(mask, hitN)
+            arg = (sN, maskN, [curr_idx] + sub_idx)
+            pdbAssert(product(sN) == int(maskN.sum(dtype=tr.long)))
         return getRand(arg)
     return newRand
 
@@ -155,11 +153,12 @@ def circ(a):
 def getMCRand(top_shape):
     def getRand(arg = None):
         if arg is None:
-            mask = lones(top_shape, dtype=torch.uint8)
+            mask = lones(top_shape, dtype=tr.uint8)
             maskShape = top_shape
             idx = []
         else:
             maskShape,mask, idx = arg
+            pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
         return rand(size = maskShape)
     return getRand
 
@@ -169,14 +168,15 @@ def getPermuteRand(top_shape, mcmc_best):
 
     for k,v in mcmc_best.items():  # save old random values for when new things get mixed in
         mcmc_generator[k] = v
-    
+    ptop = product(top_shape)
     def getRand(arg = None):
             if arg is None:
-                mask = lones(top_shape, dtype=torch.uint8)
+                mask = lones(top_shape, dtype=tr.uint8)
                 maskShape = top_shape
                 idx = []
             else:
                 maskShape, mask, idx = arg
+                pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
             tidx = tuple(idx)    
             
             if tidx not in num_calls:
@@ -192,24 +192,19 @@ def getPermuteRand(top_shape, mcmc_best):
                 # could be done way quicker in handwritten cuda.
                 # sadly, pseudorandoms are slow enough that we want to do as few of them as possible.
                 
-                # can theoretically optimize this a bit here by using a subset of top_shape corresponding to the max in mask
-                
                 bestIndxs, bestRand = mcmc_best[tidx]
 
-                bestMask = lzeros(top_shape, dtype=torch.uint8)
-                bestMask[bestIndxs] = 1
-                
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
-                pdbAssert(bestMask.sum() == product(bestRand.shape))
-                newRands[bestMask] = torch.normal(mean = bestRand, std = 0.003)
-                nbest = (1 - bestMask) & mask
-                newRands[nbest] = rand(size = [int(nbest.sum(dtype=torch.long))])
+                newRands[mask] = rand(size = maskShape)
 
-                r = newRands[mask]
+                newRands[cudify(bestIndxs)] = bestRand + randn(bestRand.shape) * 0.003
+
+                r = newRands[mask].contiguous()
                 pdbAssert(product(r.shape) == product(maskShape))
                 circ(r)
-                pdbAssert(product(r.shape) == product(maskShape))
-            mcmc_generator[tidx] = (mask.nonzero().cpu(),r)
+            ids = mask.nonzero().squeeze(dim=1)
+            pdbAssert(no_repeats(ids))
+            mcmc_generator[tidx] = (ids.cpu(),r)
             return r
     
     return getRand, mcmc_generator
@@ -224,15 +219,11 @@ def mixSamples(top_shape, mix, sa, sb):
             res[k] = sa[k]
         else:
             aI, aR = sa[k]
-            pdbAssert(len(aR.shape) == 1)
-            pdbAssert(product(aI.shape) == product(aR.shape))
             
             bI, bR = sb[k]
-            pdbAssert(len(bR.shape) == 1)
-            pdbAssert(product(bI.shape) == product(bR.shape))
 
-            aM = lzeros(top_shape, dtype=torch.uint8)
-            bM = lzeros(top_shape, dtype=torch.uint8)
+            aM = lzeros(top_shape, dtype=tr.uint8)
+            bM = lzeros(top_shape, dtype=tr.uint8)
             
             aM[aI] = 1
             bM[bI] = 1
@@ -246,7 +237,9 @@ def mixSamples(top_shape, mix, sa, sb):
             abM = aM | bM
 
             # be wary of what happens when mixing something in which was not there before!
-            res[k] = (abM.nonzero().cpu(), (aRes * mix + bRes * (1 - mix))[abM])
+            abMn = abM.nonzero().squeeze(dim=1)
+            pdbAssert(no_repeats(abMn))
+            res[k] = (abMn.cpu(), (aRes * mix + bRes * (1 - mix))[abM])
     return res
 
 def shoot(args, getRand, S, pixels):
@@ -315,7 +308,7 @@ def one_or_div(a,b, o = 1):
     if isinstance(b, numbers.Number):
         return a / b if b > 0 else 1
     gtz = b > 0
-    return torch.where(gtz, a / torch.where(gtz, b, ones(b.shape) * o) , ones(b.shape) * o)
+    return tr.where(gtz, a / tr.where(gtz, b, ones(b.shape) * o) , ones(b.shape) * o)
 
 def pathtrace(args, S, pixels):
 
@@ -426,7 +419,7 @@ def render(args):
 
 
 class StaticArgs:
-    SAVE_DIR="out_erpt_red_save"
+    SAVE_DIR="out"
     OVERSAMPLE = 4
     WIDTH = 400
     HEIGHT = 300
