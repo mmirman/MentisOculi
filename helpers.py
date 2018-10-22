@@ -56,10 +56,10 @@ def cudify(x):
     return x
 
 def place(cond, x):
-    pdbAssert(product(x.shape) == int(cond.sum(dtype=torch.long)))
+    #pdbAssert(product(x.shape) == int(cond.sum(dtype=torch.long)))
     r = cond.new_zeros(size = cond.shape) # TODO:  looks like this is bugging out nondeterministically!
     r[cond] = x
-    pdbAssert(int(r.sum(dtype=torch.long)) == int(x.sum(dtype=torch.long)))
+    #pdbAssert(int(r.sum(dtype=torch.long)) == int(x.sum(dtype=torch.long)))
     return r
 
 def extract(cond, x):

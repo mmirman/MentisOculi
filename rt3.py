@@ -18,7 +18,7 @@ def no_repeats(l):
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    color = color * 8
+    color = color * 10
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
     Image.merge("RGB", rgb).save(file_nm)
 
@@ -138,12 +138,12 @@ def getNewRand(getRand, mask, curr_idx):
     def newRand(arg = None):
         if arg is None:
             arg = (mshape, mask, [curr_idx])
-            pdbAssert(product(mshape) == int(mask.sum(dtype=tr.long)))
+            #pdbAssert(product(mshape) == int(mask.sum(dtype=tr.long)))
         else:
             (sN, hitN, sub_idx) = arg
             maskN = place(mask, hitN)
             arg = (sN, maskN, [curr_idx] + sub_idx)
-            pdbAssert(product(sN) == int(maskN.sum(dtype=tr.long)))
+            #pdbAssert(product(sN) == int(maskN.sum(dtype=tr.long)))
         return getRand(arg)
     return newRand
 
@@ -158,7 +158,7 @@ def getMCRand(top_shape):
             idx = []
         else:
             maskShape,mask, idx = arg
-            pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
+            #pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
         return rand(size = maskShape)
     return getRand
 
@@ -175,7 +175,7 @@ def getPermuteRand(top_shape, mcmc_best):
                 idx = []
             else:
                 maskShape, mask, idx = arg
-                pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
+                #pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
             tidx = tuple(idx)    
             
             if tidx not in num_calls:
@@ -186,7 +186,7 @@ def getPermuteRand(top_shape, mcmc_best):
 
             if tidx not in mcmc_best:
                 r = rand(size = maskShape)
-                pdbAssert(product(r.shape) == product(maskShape))
+                #pdbAssert(product(r.shape) == product(maskShape))
             else: 
                 # could be done way quicker in handwritten cuda.
                 # sadly, pseudorandoms are slow enough that we want to do as few of them as possible.
@@ -197,12 +197,12 @@ def getPermuteRand(top_shape, mcmc_best):
                 newRands[mask] = rand(size = maskShape)
 
                 newRands[cudify(bestIndxs)] = bestRand + randn(bestRand.shape) * 0.003
-
+                
                 r = newRands[mask].contiguous()
-                pdbAssert(product(r.shape) == product(maskShape))
+                #pdbAssert(product(r.shape) == product(maskShape))
                 circ(r)
             ids = mask.nonzero().squeeze(dim=1)
-            pdbAssert(no_repeats(ids))
+            #pdbAssert(no_repeats(ids))
             mcmc_generator[tidx] = (ids.cpu(),r)
             return r
     
@@ -237,7 +237,7 @@ def mixSamples(top_shape, mix, sa, sb):
 
             # be wary of what happens when mixing something in which was not there before!
             abMn = abM.nonzero().squeeze(dim=1)
-            pdbAssert(no_repeats(abMn))
+            #pdbAssert(no_repeats(abMn))
             res[k] = (abMn.cpu(), (aRes * mix + bRes * (1 - mix))[abM])
     return res
 
@@ -317,7 +317,6 @@ def pathtrace(args, S, pixels):
     img = vec3u(0, img_shape)
 
     total_time = 0
-        
 
     x_sz = (S[2] - S[0])
     y_sz = (S[3] - S[1])
@@ -420,13 +419,13 @@ def render(args):
 class StaticArgs:
     SAVE_DIR="out"
     OVERSAMPLE = 4
-    WIDTH = 400
-    HEIGHT = 300
+    WIDTH = 800
+    HEIGHT = 600
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
         Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.96, 0.99)),
-        Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.5, 0.95, 1)),
+        Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
         Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7),
         CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.96, .99, .99)),
     ]
@@ -438,7 +437,7 @@ class StaticArgs:
     STOP_PROB = 0.8
 
     NEAREST = 0.000000001
-    restart_freq = 30
-    num_mc_samples = 3
+    restart_freq = 20
+    num_mc_samples = 50
 
 render(StaticArgs)
