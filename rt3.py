@@ -434,10 +434,10 @@ class StaticArgs:
     FARAWAY = 1.0e36            # an implausibly huge distance
     MAX_BOUNCE = 12
     NUDGE = 0.0000001
-    STOP_PROB = 0.8
+    STOP_PROB = 0.75
 
     NEAREST = 0.000000001
-    restart_freq = 20
+    restart_freq = 50
     num_mc_samples = 50
 
 render(StaticArgs)
