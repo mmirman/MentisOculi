@@ -168,7 +168,6 @@ def getPermuteRand(top_shape, mcmc_best):
 
     for k,v in mcmc_best.items():  # save old random values for when new things get mixed in
         mcmc_generator[k] = v
-    ptop = product(top_shape)
     def getRand(arg = None):
             if arg is None:
                 mask = lones(top_shape, dtype=tr.uint8)
