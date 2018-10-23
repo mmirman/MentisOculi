@@ -197,8 +197,6 @@ def getPermuteRand(top_shape, mcmc_best):
                 
                 r = newRands[mask].contiguous()
                 #pdbAssert(product(r.shape) == product(maskShape))
-                #r.sub_(r.floor())
-                #
 
             ids = mask.nonzero().squeeze(dim=1)
             #pdbAssert(no_repeats(ids))
