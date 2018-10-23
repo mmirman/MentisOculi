@@ -309,6 +309,14 @@ def one_or_div(a,b, o = 1):
     gtz = b > 0
     return tr.where(gtz, a / tr.where(gtz, b, ones(b.shape) * o) , ones(b.shape) * o)
 
+def addS(args, img, s, p):
+    im_locs = s * vec3(args.w, args.h, 0)
+    im_locs = [im_locs.y.long(), im_locs.x.long()]
+    
+    img.x.reshape(args.h, args.w)[im_locs] += p.x
+    img.y.reshape(args.h, args.w)[im_locs] += p.y
+    img.z.reshape(args.h, args.w)[im_locs] += p.z
+
 def pathtrace(args, S, pixels):
 
     samp_shape = pixels.x.shape
@@ -328,31 +336,32 @@ def pathtrace(args, S, pixels):
     for i in itertools.count(1,1):
         restart = i % args.restart_freq == 1     
         if restart:
-            best_sample = vec3u(0, samp_shape)
-            best_sample_params = {}
+            best_samp = vec3u(0, samp_shape)
+            best_samp_params = {}
+        elif i % args.mut_restart_freq == 1:
+            best_samp = vec3u(0, samp_shape)
+            best_samp_coords = original_samp_coords
+            best_samp_params = original_samp_params
 
-        getRand, new_sample_params = getPermuteRand(samp_shape, best_sample_params)
+        getRand, new_samp_params = getPermuteRand(samp_shape, best_samp_params)
         samp_coords = vec3(getRand(), getRand(), 0)
 
         samp_cast = vec3(S[0], S[1], 0) + samp_coords * vec3(x_sz, y_sz, 0)
 
         if restart:
             k += 1
+            original_samp_coords = samp_coords
+            original_samp_params = new_samp_params
+
             best_samp_coords = samp_coords
-            best_sample_params = new_sample_params
+            best_samp_params = new_samp_params
 
             estimate = multiSamp(args, samp_shape, samp_cast, args.num_mc_samples)
 
-            im_locs = best_samp_coords * vec3(args.w, args.h, 0)
-            im_locs = [im_locs.y.long(), im_locs.x.long()]
-            estim = vec3u(0, img_shape)
-            estim.x.reshape(args.h, args.w)[im_locs] += estimate.x
-            estim.y.reshape(args.h, args.w)[im_locs] += estimate.y
-            estim.z.reshape(args.h, args.w)[im_locs] += estimate.z
-
-            mcestim = estim + mcestim
+            addS(args, mcestim, best_samp_coords, estimate)
             save_img(args, mcestim / k, "estimate"+str(k)+".png")
             continue
+
         m += 1
 
         tPass = time.time()
@@ -360,22 +369,15 @@ def pathtrace(args, S, pixels):
         new_samp = raytrace(args, getRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
 
         accept_var = rand(samp_shape)
-        accept_prob = one_or_div(new_samp.luminance(), best_sample.luminance())
+        accept_prob = one_or_div(new_samp.luminance(), best_samp.luminance())
         accept_prob.clamp_(0,1)
 
-        def addS(s, p):
-            im_locs = s * vec3(args.w, args.h, 0)
-            im_locs = [im_locs.y.long(), im_locs.x.long()]
-
-            img.x.reshape(args.h, args.w)[im_locs] += p.x
-            img.y.reshape(args.h, args.w)[im_locs] += p.y
-            img.z.reshape(args.h, args.w)[im_locs] += p.z
-        addS(best_samp_coords, (best_sample * estimate.luminance()).div_or(best_sample.luminance(), estimate) * (1 - accept_prob) )
-        addS(samp_coords, (new_samp * estimate.luminance()).div_or(new_samp.luminance(), estimate) * accept_prob)
+        addS(args, img, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate) * (1 - accept_prob) )
+        addS(args, img, samp_coords, (new_samp * estimate.luminance()).div_or(new_samp.luminance(), estimate) * accept_prob)
 
         should_accept = (accept_var <= accept_prob).double()
-        best_sample_params = mixSamples(samp_shape, should_accept, new_sample_params, best_sample_params)
-        best_sample = new_samp * should_accept + best_sample * (1 - should_accept)
+        best_samp_params = mixSamples(samp_shape, should_accept, new_samp_params, best_samp_params)
+        best_samp = new_samp * should_accept + best_samp * (1 - should_accept)
         best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
 
 
@@ -417,10 +419,11 @@ def render(args):
 
 
 class StaticArgs:
-    SAVE_DIR="out"
-    OVERSAMPLE = 4
-    WIDTH = 800
-    HEIGHT = 600
+    SAVE_DIR="out_small"
+    OVERSAMPLE = 2
+
+    WIDTH = 400
+    HEIGHT = 300
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
@@ -437,7 +440,8 @@ class StaticArgs:
     STOP_PROB = 0.75
 
     NEAREST = 0.000000001
-    restart_freq = 50
-    num_mc_samples = 50
+    restart_freq = 30
+    mut_restart_freq = 10
+    num_mc_samples = 20
 
 render(StaticArgs)
