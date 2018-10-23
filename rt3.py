@@ -79,7 +79,7 @@ class Sphere:
         if self.mirror is not None:
             diffcol = self.diffusecolor(M)
             refl_prob = self.mirror / (self.mirror + diffcol.luminance()) if isinstance(self.mirror, numbers.Number) else self.mirror.luminance()
-            reflect = getRand() <= refl_prob
+            reflect = tri(getRand()) <= refl_prob
             diffuse = 1 - reflect
             
             colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / (1 - refl_prob)) if diffuse.any() else rgb(0,0,0)
@@ -116,7 +116,7 @@ def raytrace(args, getRand, O, D, bounce = 0):
     for (s, i) in zip(args.scene, range(len(args.scene))):
         hit = (nearest < args.FARAWAY) & (nearest_idx == i) & (nearest > args.NUDGE) # d == nearest is hacky af
         probStop = args.STOP_PROB if bounce >= 1 else 0
-        rd = getRand()
+        rd = tri(getRand())
         rgp = (rd >= probStop)
 
         hit = hit & rgp
@@ -146,9 +146,6 @@ def getNewRand(getRand, mask, curr_idx):
             #pdbAssert(product(sN) == int(maskN.sum(dtype=tr.long)))
         return getRand(arg)
     return newRand
-
-def circ(a):
-    a.sub_(a.floor())
 
 def getMCRand(top_shape):
     def getRand(arg = None):
@@ -200,7 +197,9 @@ def getPermuteRand(top_shape, mcmc_best):
                 
                 r = newRands[mask].contiguous()
                 #pdbAssert(product(r.shape) == product(maskShape))
-                circ(r)
+                #r.sub_(r.floor())
+                #
+
             ids = mask.nonzero().squeeze(dim=1)
             #pdbAssert(no_repeats(ids))
             mcmc_generator[tidx] = (ids.cpu(),r)
@@ -240,14 +239,6 @@ def mixSamples(top_shape, mix, sa, sb):
             #pdbAssert(no_repeats(abMn))
             res[k] = (abMn.cpu(), (aRes * mix + bRes * (1 - mix))[abM])
     return res
-
-def shoot(args, getRand, S, pixels):
-    x_sz = (S[2] - S[0]) / args.w
-    y_sz = (S[3] - S[1]) / args.h
-    
-    pixel_mod = pixels + vec3(getRand() * x_sz, getRand() * y_sz, 0)    
-    return raytrace(args, getRand, args.eye, (pixel_mod - args.eye).norm(), bounce = 0) 
-
 
 def multiSamp(args, samp_shape, samp_cast, num_mc_samples):
     total_time = 0
@@ -291,24 +282,30 @@ def addS(args, img, s, p):
     img.y.reshape(args.h, args.w)[im_locs] += p.y
     img.z.reshape(args.h, args.w)[im_locs] += p.z
 
-def pathtrace(args, S, pixels):
+def wrap(r):
+    return r - r.floor()
 
-    samp_shape = pixels.x.shape
-    img_shape = pixels.x.shape
+def tri(r):
+    return 1 - (1 - r.fmod(2)).abs()
+
+
+def pathtrace(args, S):
+
+    samp_shape = [args.WIDTH * args.SUBSAMPLE * args.HEIGHT * args.SUBSAMPLE]
+    img_shape  = [args.w * args.h]
 
     samps_per_pass = product(samp_shape)
 
-    img = vec3u(0, img_shape)
+    histogram = vec3u(0, img_shape)
 
     total_time = 0
 
     x_sz = (S[2] - S[0])
     y_sz = (S[3] - S[1])
 
-
     m = 0
     k = 0
-    mcestim = vec3u(0, img_shape)
+    mc_histogram = vec3u(0, img_shape)
     for i in itertools.count(1,1):
         restart = i % args.restart_freq == 1     
         if restart:
@@ -320,7 +317,7 @@ def pathtrace(args, S, pixels):
             best_samp_params = original_samp_params
 
         getRand, new_samp_params = getPermuteRand(samp_shape, best_samp_params)
-        samp_coords = vec3(getRand(), getRand(), 0)
+        samp_coords = vec3(tri(getRand()), tri(getRand()), 0)
 
         samp_cast = vec3(S[0], S[1], 0) + samp_coords * vec3(x_sz, y_sz, 0)
 
@@ -334,8 +331,8 @@ def pathtrace(args, S, pixels):
 
             estimate = multiSamp(args, samp_shape, samp_cast, args.num_mc_samples)
 
-            addS(args, mcestim, best_samp_coords, estimate)
-            save_img(args, mcestim / k, "estimate"+str(k)+".png")
+            addS(args, mc_histogram, best_samp_coords, estimate)
+            save_img(args, mc_histogram / k, "estimate"+str(k)+".png")
             continue
 
         m += 1
@@ -348,8 +345,8 @@ def pathtrace(args, S, pixels):
         accept_prob = one_or_div(new_samp.luminance(), best_samp.luminance())
         accept_prob.clamp_(0,1)
 
-        addS(args, img, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate) * (1 - accept_prob) )
-        addS(args, img, samp_coords, (new_samp * estimate.luminance()).div_or(new_samp.luminance(), estimate) * accept_prob)
+        addS(args, histogram, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate) * (1 - accept_prob) )
+        addS(args, histogram, samp_coords, (new_samp * estimate.luminance()).div_or(new_samp.luminance(), estimate) * accept_prob)
 
         should_accept = (accept_var <= accept_prob).double()
         best_samp_params = mixSamples(samp_shape, should_accept, new_samp_params, best_samp_params)
@@ -372,8 +369,8 @@ def pathtrace(args, S, pixels):
         print("\n\tsamp/sec:", samps_per_pass / pass_time )
         print("\tAvg samp/sec:",  samps_per_pass * i / total_time, "\n")
 
-        save_img(args, img / m, "img"+str(i)+".png")
-        save_img(args, img / m, "img.png")
+        save_img(args, histogram / m, "img"+str(i)+".png")
+        save_img(args, histogram / m, "img.png")
 
 
 def render(args):
@@ -386,17 +383,14 @@ def render(args):
 
     r = float(args.WIDTH) / args.HEIGHT
     S = (-1., 1. / r + .25, 1., -1. / r + .25)
-    x =  linspace(S[0], S[2], args.w).repeat(args.h)
-    y = linspace(S[1], S[3], args.h).view(-1,1).expand(args.h,args.w).contiguous().view(-1)
-
-    Q = vec3(x, y, 0)
-
-    pathtrace(args, S, Q)
+    pathtrace(args, S)
 
 
 class StaticArgs:
     SAVE_DIR="out_small"
     OVERSAMPLE = 2
+
+    SUBSAMPLE = 2
 
     WIDTH = 400
     HEIGHT = 300
