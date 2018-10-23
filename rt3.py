@@ -64,7 +64,7 @@ class Sphere:
 
     def sampleMirror(self, args, getRand, D, N, newO, bounce):
         rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-        return raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror * rayRefl.dot(N)        
+        return raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror
 
 
     def light(self, args, getRand, O, D, d, bounce):
@@ -388,10 +388,10 @@ class StaticArgs:
     SAVE_DIR="out_small"
     OVERSAMPLE = 2
 
-    SUBSAMPLE = 2
+    SUBSAMPLE = 4
 
-    WIDTH = 400
-    HEIGHT = 300
+    WIDTH = 800
+    HEIGHT = 600
 
     scene = [
         Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
@@ -405,11 +405,11 @@ class StaticArgs:
     FARAWAY = 1.0e36            # an implausibly huge distance
     MAX_BOUNCE = 12
     NUDGE = 0.0000001
-    STOP_PROB = 0.75
+    STOP_PROB = 0.7
 
     NEAREST = 0.000000001
-    restart_freq = 30
-    mut_restart_freq = 10
-    num_mc_samples = 20
+    restart_freq = 100
+    mut_restart_freq = 20
+    num_mc_samples = 100
 
 render(StaticArgs)
