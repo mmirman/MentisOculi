@@ -252,6 +252,7 @@ def shoot(args, getRand, S, pixels):
 def multiSamp(args, samp_shape, samp_cast, num_mc_samples):
     total_time = 0
     estimate = vec3u(0,samp_shape)
+    samps_per_pass = product(samp_shape)
     for i in range(1,num_mc_samples + 1):
         tPass = time.time()
 
@@ -268,40 +269,13 @@ def multiSamp(args, samp_shape, samp_cast, num_mc_samples):
         print("\tPass Time:", pass_time)
         print("\tAvg Pass Time:",  total_time / i)
 
-        print("\tTotal Samples:", args.w * args.h * i)
+        print("\tTotal Samples:", samps_per_pass * i)
         print("\tSamples Per Pixel:", args.OVERSAMPLE * i)
 
-        print("\tsamp/sec:", (args.w * args.h) / pass_time )
-        print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
+        print("\tsamp/sec:", samps_per_pass / pass_time )
+        print("\tAvg samp/sec:",  samps_per_pass * i / total_time, "\n")
 
     return estimate
-
-def mctrace(args, S, pixels, k):
-    top_shape = pixels.x.shape
-    img = 0
-    total_time = 0
-    for i in range(1,k+1):
-        tPass = time.time()
-        getRand = getMCRand(top_shape)
-        img = shoot(args, getRand, S, pixels) + img
-        
-        tCurr = time.time()
-        pass_time = tCurr - tPass
-        total_time += pass_time
-
-        print("\nMCPass:", i)
-        print("\tElapsed Time:", total_time)
-        print("\tPass Time:", pass_time)
-        print("\tAvg Pass Time:",  total_time / i)
-
-        print("\tTotal Samples:", args.w * args.h * i)
-        print("\tSamples Per Pixel:", args.OVERSAMPLE * i)
-
-        print("\tsamp/sec:", (args.w * args.h) / pass_time )
-        print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
-
-    img /= k
-    return img
 
 def one_or_div(a,b, o = 1):
     if isinstance(b, numbers.Number):
@@ -321,6 +295,8 @@ def pathtrace(args, S, pixels):
 
     samp_shape = pixels.x.shape
     img_shape = pixels.x.shape
+
+    samps_per_pass = product(samp_shape)
 
     img = vec3u(0, img_shape)
 
@@ -390,11 +366,11 @@ def pathtrace(args, S, pixels):
         print("\tPass Time:", pass_time)
         print("\tAvg Pass Time:",  total_time / i)
 
-        print("\n\tTotal Samples:", args.w * args.h * i)
+        print("\n\tTotal Samples:", samps_per_pass * i)
         print("\tSamples Per Pixel:", args.OVERSAMPLE * i)
 
-        print("\n\tsamp/sec:", (args.w * args.h) / pass_time )
-        print("\tAvg samp/sec:",  (args.w * args.h * i) / total_time, "\n")
+        print("\n\tsamp/sec:", samps_per_pass / pass_time )
+        print("\tAvg samp/sec:",  samps_per_pass * i / total_time, "\n")
 
         save_img(args, img / m, "img"+str(i)+".png")
         save_img(args, img / m, "img.png")
