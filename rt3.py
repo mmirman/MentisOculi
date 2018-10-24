@@ -15,13 +15,36 @@ def no_repeats(l):
     t = l.sort()[0]
     return not (t[1:] == t[:-1]).any()
 
-def save_img(args, color, nm):
+def save_img(args, img, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    color = color * 2 
-    rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
+    img = (img * 2.0 ).clamp(0,1) * 255
+    img = img.transpose(0,2)
+    
+    rgb = [Image.fromarray(np.array(c), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in img.float()]
     Image.merge("RGB", rgb).save(file_nm)
 
+
+def getFirstOcc(locs, p):
+    is_first = torch.cat([btype([1]), locs[1:] != locs[:-1]])
+    is_repeat = 1 - is_first
+    return locs[is_first], p[is_first,:], locs[is_repeat], p[is_repeat,:]
+
+def addS(args, img, s, p):
+    im_locs = s * vec3(args.w, args.h, 0)
+
+    im_locs, im_locs_ind = torch.sort(im_locs.y.long() + im_locs.x.long() * args.h )
+    p = torch.stack([p.x, p.y, p.z], dim=1)[im_locs_ind]
+    
+    imger = img.reshape(args.h * args.w, 3)
+    while product(p.shape) > 0:
+        im_locs_cont, p_cont, im_locs, p = getFirstOcc(im_locs, p)
+        imger[im_locs_cont] += p_cont
+
+
+def new_img(args):
+    img_shape  = [args.w, args.h, 3]
+    return zeros(img_shape)
 
 def random_spherical(u, v):
     theta  = u * 2 * math.pi
@@ -275,13 +298,7 @@ def one_or_div(a,b, o = 1):
     gtz = b > 0
     return tr.where(gtz, a / tr.where(gtz, b, ones(b.shape) * o) , ones(b.shape) * o)
 
-def addS(args, img, s, p):
-    im_locs = s * vec3(args.w, args.h, 0)
-    #im_locs = [im_locs.y.long(), im_locs.x.long()]
-    img_comp = [t.reshape(args.h, args.w) for t in img.components()]
-    for (i,j, qx, qy, qz) in zip(im_locs.y.long().cpu(), im_locs.x.long().cpu(), p.x.cpu(), p.y.cpu(), p.z.cpu()):
-        for comp, q in zip(img_comp, [qx,qy,qz]):
-            comp[i,j] += q 
+
 
 def wrap(r):
     return r - r.floor()
@@ -289,15 +306,13 @@ def wrap(r):
 def tri(r):
     return 1 - (1 - r.fmod(2)).abs()
 
-
 def pathtrace(args, S):
 
     samp_shape = [args.WIDTH * args.SUBSAMPLE * args.HEIGHT * args.SUBSAMPLE]
-    img_shape  = [args.w * args.h]
-
     samps_per_pass = product(samp_shape)
 
-    histogram = vec3uCPU(0, img_shape)
+    histogram = new_img(args)
+    mc_histogram = new_img(args)
 
     total_time = 0
 
@@ -306,7 +321,7 @@ def pathtrace(args, S):
 
     m = 0
     k = 0
-    mc_histogram = vec3uCPU(0, img_shape)
+
     for i in itertools.count(1,1):
         restart = i % args.restart_freq == 1     
         if restart:
@@ -391,9 +406,9 @@ class StaticArgs:
     SAVE_DIR="tmp"
     OVERSAMPLE = 1
 
-    SUBSAMPLE = 2
+    SUBSAMPLE = 1
 
-    WIDTH = 300
+    WIDTH = 400
     HEIGHT = 300
 
     scene = [
@@ -401,10 +416,10 @@ class StaticArgs:
         Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
         Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7),
         CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.9, 0.9, 0.99)),
-        Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
-        Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
-        Sphere(vec3(100000.2, 0, 0), 99999, rgb(0.99, 0.6, 0.6)),
-        Sphere(vec3(-100000.2, 0, 0), 99999, rgb(0.6, 0.99, 0.6)),
+        #Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
+        #Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
+        #Sphere(vec3(100000.2, 0, 0), 99999, rgb(0.99, 0.6, 0.6)),
+        #Sphere(vec3(-100000.2, 0, 0), 99999, rgb(0.6, 0.99, 0.6)),
     ]
 
     eye = vec3(0., 0.35, -1.)     # Eye position
@@ -416,6 +431,6 @@ class StaticArgs:
     NEAREST = 0.000000001
     restart_freq = 40
     mut_restart_freq = 40
-    num_mc_samples = 1
+    num_mc_samples = 20
 
 render(StaticArgs)
