@@ -107,6 +107,8 @@ class vec3(object):
         return self.dot(self)
     def rgbNorm(self):
         return self * (1 / (self.x + self.y + self.z))
+    
+
     def norm(self):
         l = abs(self)
         mag = torch.sqrt(l) if isinstance(l, torch.Tensor) else math.sqrt(l)
@@ -149,3 +151,6 @@ def one_or_div(a,b, o = None):
 
 def vec3u(x,s):
     return vec3(ones(s),ones(s),ones(s)) * x
+
+def vec3uCPU(x,s):
+    return vec3(ones(s).cpu(),ones(s).cpu(),ones(s).cpu()) * x

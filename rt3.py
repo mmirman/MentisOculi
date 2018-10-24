@@ -18,7 +18,7 @@ def no_repeats(l):
 def save_img(args, color, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    color = color * 10
+    color = color * 2 
     rgb = [Image.fromarray(np.array(c.clamp(0, 1).reshape((args.h, args.w)).float() * 255), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in color.components()]
     Image.merge("RGB", rgb).save(file_nm)
 
@@ -93,9 +93,12 @@ class Sphere:
 
 
 class CheckeredSphere(Sphere):
+    def __init__(self,*args, diffuse2 = vec3(0,0,0), **kargs):
+        self.diffuse2= diffuse2
+        super(CheckeredSphere, self).__init__(*args, **kargs)
     def diffusecolor(self, M):
-        checker = ((M.x * 2).int() % 2) == ((M.z * 2).int() % 2)
-        return self.diffuse * checker.double() + rgb(0.8, 0.6, 0.6) * (1 - checker.double())
+        checker = ((M.x * 4).int() % 2) == ((M.z * 4).int() % 2)
+        return self.diffuse * checker.double() + self.diffuse2 * (1 - checker.double())
 
 class Light(Sphere):
     def light(self, *args, **kargs):
@@ -274,11 +277,11 @@ def one_or_div(a,b, o = 1):
 
 def addS(args, img, s, p):
     im_locs = s * vec3(args.w, args.h, 0)
-    im_locs = [im_locs.y.long(), im_locs.x.long()]
-    
-    img.x.reshape(args.h, args.w)[im_locs] += p.x
-    img.y.reshape(args.h, args.w)[im_locs] += p.y
-    img.z.reshape(args.h, args.w)[im_locs] += p.z
+    #im_locs = [im_locs.y.long(), im_locs.x.long()]
+    img_comp = [t.reshape(args.h, args.w) for t in img.components()]
+    for (i,j, qx, qy, qz) in zip(im_locs.y.long().cpu(), im_locs.x.long().cpu(), p.x.cpu(), p.y.cpu(), p.z.cpu()):
+        for comp, q in zip(img_comp, [qx,qy,qz]):
+            comp[i,j] += q 
 
 def wrap(r):
     return r - r.floor()
@@ -294,7 +297,7 @@ def pathtrace(args, S):
 
     samps_per_pass = product(samp_shape)
 
-    histogram = vec3u(0, img_shape)
+    histogram = vec3uCPU(0, img_shape)
 
     total_time = 0
 
@@ -303,7 +306,7 @@ def pathtrace(args, S):
 
     m = 0
     k = 0
-    mc_histogram = vec3u(0, img_shape)
+    mc_histogram = vec3uCPU(0, img_shape)
     for i in itertools.count(1,1):
         restart = i % args.restart_freq == 1     
         if restart:
@@ -385,31 +388,34 @@ def render(args):
 
 
 class StaticArgs:
-    SAVE_DIR="out_small"
-    OVERSAMPLE = 2
+    SAVE_DIR="tmp"
+    OVERSAMPLE = 1
 
-    SUBSAMPLE = 4
+    SUBSAMPLE = 2
 
-    WIDTH = 800
-    HEIGHT = 600
+    WIDTH = 300
+    HEIGHT = 300
 
     scene = [
-        Light(vec3(5, 2, 1.2), 2.0, rgb(1, 1, 1)),
-        Sphere(vec3(0, 205, 1), 197, rgb(0.99, 0.96, 0.99)),
+        Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
         Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
         Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7),
-        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.96, .99, .99)),
+        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.9, 0.9, 0.99)),
+        Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
+        Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
+        Sphere(vec3(100000.2, 0, 0), 99999, rgb(0.99, 0.6, 0.6)),
+        Sphere(vec3(-100000.2, 0, 0), 99999, rgb(0.6, 0.99, 0.6)),
     ]
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
     MAX_BOUNCE = 12
     NUDGE = 0.0000001
-    STOP_PROB = 0.7
+    STOP_PROB = 0.8
 
     NEAREST = 0.000000001
-    restart_freq = 100
-    mut_restart_freq = 20
-    num_mc_samples = 100
+    restart_freq = 40
+    mut_restart_freq = 40
+    num_mc_samples = 1
 
 render(StaticArgs)
