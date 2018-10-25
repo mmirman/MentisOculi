@@ -71,8 +71,8 @@ class Sphere:
         sq = tr.sqrt(tr.relu(disc)) # can postpone the sqrt here for a speedup
         b = -b
         h0 = (b - sq)
-        h1 = (b + sq)
-        h = tr.where((h0 > 0) & (h0 < h1), h0, h1)
+        #h1 = (b + sq)
+        h = h0 #b + tr.where(b > sq, sq, -sq)
         pred = (disc > 0) & (h > args.NEAREST)
         return tr.where(pred, 0.5 * h, ones_like(h) * args.FARAWAY)
 
