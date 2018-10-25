@@ -90,7 +90,7 @@ class Sphere:
 
     def sampleMirror(self, args, getRand, D, N, newO, bounce):
         rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-        return raytrace(args, getRand, newO, rayRefl, bounce + 0.5) * self.mirror
+        return raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror
 
 
     def light(self, args, getRand, O, D, d, bounce):
@@ -215,12 +215,12 @@ def getPermuteRand(args, top_shape, mcmc_best):
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
                 newRands[mask] = rand(size = maskShape)
 
-                newRands[cudify(bestIndxs)] = bestRand + randn(bestRand.shape) * args.jump_size
+                newRands[cudify(bestIndxs)] = cudify(bestRand) + randn(bestRand.shape) * args.jump_size
                 
                 r = newRands[mask]
 
             ids = mask.nonzero().squeeze(dim=1)
-            mcmc_generator[tidx] = (ids.cpu(),r)
+            mcmc_generator[tidx] = (ids.cpu(),r.cpu())
             return r
     
     return getRand, mcmc_generator
@@ -241,20 +241,20 @@ def mixSamples(top_shape, mix, sa, sb):
             aM = lzeros(top_shape, dtype=tr.uint8)
             bM = lzeros(top_shape, dtype=tr.uint8)
             
-            aM[aI] = 1
-            bM[bI] = 1
+            aM[cudify(aI)] = 1
+            bM[cudify(bI)] = 1
 
             aRes = zeros(top_shape)
             bRes = zeros(top_shape)
 
-            aRes[aM] = aR
-            bRes[bM] = bR
+            aRes[aM] = cudify(aR)
+            bRes[bM] = cudify(bR)
             
             abM = aM | bM
 
             # be wary of what happens when mixing something in which was not there before!
             abMn = abM.nonzero().squeeze(dim=1)
-            res[k] = (abMn.cpu(), (aRes * mix + bRes * (1 - mix))[abM])
+            res[k] = (abMn.cpu(), (aRes * mix + bRes * (1 - mix))[abM].cpu())
     return res
 
 def multiSamp(args, samp_shape, samp_cast, num_mc_samples):
@@ -366,6 +366,7 @@ def pathtrace(args, S):
         best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
 
         #addS(args, histogram, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate))
+
         tCurr = time.time()
         pass_time = tCurr - tPass
         total_time += pass_time
@@ -401,14 +402,14 @@ class StaticArgs:
     SAVE_DIR="tmp2"
     OVERSAMPLE = 4
 
-    SUBSAMPLE = 20
+    SUBSAMPLE = 8
 
-    WIDTH = 100
-    HEIGHT = 100
+    WIDTH = 500
+    HEIGHT = 500
 
     scene = [
-        #Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
-        Light(vec3(-1.3, 1.7, 0.7), 0.5, rgb(1, 1, 1)),
+        Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
+        #Light(vec3(-1.3, 1.7, 0.7), 0.5, rgb(1, 1, 1)),
         #Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
         Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.8),
         CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.3, 0.3, 0.8)),
@@ -420,14 +421,14 @@ class StaticArgs:
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 3
+    MAX_BOUNCE = 5
     NUDGE = 0.0000001
-    STOP_PROB = 0.5
+    STOP_PROB = 0.8
 
     NEAREST = 0.000000001
-    restart_freq = 30
-    mut_restart_freq = 0
-    num_mc_samples = 5
-    jump_size = 0.02 #0.003
+    restart_freq = 50
+    mut_restart_freq = 25
+    num_mc_samples = 20
+    jump_size = 0.004
 
 render(StaticArgs)
