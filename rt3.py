@@ -61,23 +61,36 @@ def random_spherical(u, v):
     return vec3(x, y, phi.cos())
 
 class Sphere:
-    def __init__(self, center, r, diffuse, mirror = None):
+    def __init__(self, center, r, diffuse, mirror = None, semi = None, semi_rel = 0):
         self.c = center
         self.r = r
         self.diffuse = diffuse
         self.mirror = mirror
+
+        self.semi_rel = semi_rel
         
         self.absCmR2 =  abs(self.c) - r * r
+        self.inv_r = 1 / self.r
+        self.semi = semi.norm() * self.inv_r if semi is not None else None
         self.c2 = self.c * 2
     def intersect(self, args, O, D):
-        b = D.dot(O - self.c)
+        Omc = O - self.c
+        b = D.dot(Omc)
         c = self.absCmR2 + abs(O) - self.c2.dot(O)
         disc = b * b - c
         sq = tr.sqrt(tr.relu(disc)) # can postpone the sqrt here for a speedup
         h0 = -b - sq  # dot(O - self.c) < r * r 
         h1 = -b + sq
-        h = tr.where(h0 > 0, h0, h1)
+        if self.semi is not None:
+            n0 = (Omc + D * h0).dot(self.semi)
+            n1 = (Omc + D * h1).dot(self.semi)
+
+            h = tr.where((h0 > 0) & (n0 >= self.semi_rel), h0, tr.where(n1 >= self.semi_rel, h1, zeros(h1.shape) - 1) )
+        else:
+            h = tr.where(h0 > 0, h0, h1)
+            
         pred = (disc > 0) & (h > args.NEAREST)
+
         return tr.where(pred, h, ones_like(h) * args.FARAWAY)
 
     def diffusecolor(self, M):
@@ -96,15 +109,17 @@ class Sphere:
 
     def sampleMirror(self, args, getRand, D, N, newO, bounce):
         rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-        col, mid = raytrace(args, getRand, newO, rayRefl, bounce + 1)
+        col, mid = raytrace(args, getRand, newO, rayRefl, bounce + 0.5)
         return col * self.mirror, mid
 
 
     def light(self, args, getRand, O, D, d, bounce):
         # D is direction
         # O is previous origin
-        M = (O + D * d)                         # new intersection point
-        N = (M - self.c) / self.r        # normal
+        M = O + D * d                         # new intersection point
+        N = (M - self.c) * self.inv_r        # normal
+        if self.semi is not None:
+            N = N * (2 * (D.dot(N) < 0).double() - 1)
 
         toO = (O - M).norm()                    # direction to ray origin
         newO = M + N * args.NUDGE               # M nudged to avoid itself
@@ -425,16 +440,17 @@ class StaticArgs:
     SAVE_DIR="tmp"
     OVERSAMPLE = 2
 
-    SUBSAMPLE = 12
+    SUBSAMPLE = 16
 
-    WIDTH = 50
-    HEIGHT = 50
+    WIDTH = 300
+    HEIGHT = 300
 
     scene = [
         Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
         #Light(vec3(-1.3, 1.7, 0.7), 0.5, rgb(1, 1, 1)),
         #Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
-        Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.8),
+        Sphere(vec3(.45, .35, 0.8), 1.2, rgb(0.1, .1, .02), 0.98, semi=vec3(-1, -0.7,0.5), semi_rel = .5),
+        Sphere(vec3(.3, -0.2, 1.3), .3, rgb(0.1, 0.1, 0), rgb(0.7, 1, 1)),
         CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.3, 0.3, 0.8)),
         Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
         Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
@@ -444,14 +460,14 @@ class StaticArgs:
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 5
+    MAX_BOUNCE = 4
     NUDGE = 0.0000001
-    STOP_PROB = 0.8
+    STOP_PROB = 0.9
 
     NEAREST = 0.000000001
     restart_freq = 50
-    mut_restart_freq = 25
-    num_mc_samples = 15
-    jump_size = 0.01
+    mut_restart_freq = 10
+    num_mc_samples = 10
+    jump_size = 0.005
 
 render(StaticArgs)
