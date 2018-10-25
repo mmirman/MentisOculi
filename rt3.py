@@ -10,6 +10,9 @@ import itertools
 
 from functools import reduce
 
+def mulF(a,m):
+    a,b = a
+    return a * m, b
 
 def no_repeats(l):
     t = l.sort()[0]
@@ -76,7 +79,7 @@ class Sphere:
         return tr.where(pred, h, ones_like(h) * args.FARAWAY)
 
     def diffusecolor(self, M):
-        return self.diffuse
+        return self.diffuse, 0
 
     def sampleDiffuse(self, args, getRand, M, N, newO, bounce):
         rayDiff = random_spherical(getRand(), getRand())
@@ -86,11 +89,13 @@ class Sphere:
         rayDiff = rayDiff * sflip
         nrdiff = nrdiff * sflip
 
-        return raytrace(args, getRand, newO, rayDiff , bounce + 1.5) * nrdiff * self.diffusecolor(M) * 2 
+        dm, did = self.diffusecolor(M)
+        return raytrace(args, getRand, newO, rayDiff , bounce + 1.5)[0] * nrdiff * dm * 2 , did
 
     def sampleMirror(self, args, getRand, D, N, newO, bounce):
         rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-        return raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror
+        col, mid = raytrace(args, getRand, newO, rayRefl, bounce + 1)
+        return col * self.mirror, mid
 
 
     def light(self, args, getRand, O, D, d, bounce):
@@ -102,20 +107,24 @@ class Sphere:
         toO = (O - M).norm()                    # direction to ray origin
         newO = M + N * args.NUDGE               # M nudged to avoid itself
 
+        sid = -1 + l_zeros(D.x.shape)
+
         if self.mirror is not None:
-            diffcol = self.diffusecolor(M)
+            diffcol = self.diffusecolor(M)[0]
             refl_prob = self.mirror / (self.mirror + diffcol.luminance()) if isinstance(self.mirror, numbers.Number) else self.mirror.luminance()
             reflect = tri(getRand()) <= refl_prob
             diffuse = 1 - reflect
             
-            colorDiff = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) * (1 / (1 - refl_prob)) if diffuse.any() else rgb(0,0,0)
+            colorDiff, did = mulF(self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce), 1 / (1 - refl_prob)) if diffuse.any() else (rgb(0,0,0), 0)
 
-            colorRefl = self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) * (1 / refl_prob) if reflect.any() else rgb(0,0,0)
+            colorRefl, mid = mulF(self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce), 1 / refl_prob) if reflect.any() else (rgb(0,0,0), 0)
 
             color = colorDiff.place(diffuse) + colorRefl.place(reflect)
+            sid[diffuse] = did * 2
+            sid[reflect] = mid * 2 + 1
         else:
-            color = self.sampleDiffuse(args, getRand, M, N, newO, bounce)
-        return color
+            color, sid = self.sampleDiffuse(args, getRand, M, N, newO, bounce)
+        return color, sid
 
 
 class CheckeredSphere(Sphere):
@@ -124,11 +133,11 @@ class CheckeredSphere(Sphere):
         super(CheckeredSphere, self).__init__(*args, **kargs)
     def diffusecolor(self, M):
         checker = (((M.x * 4).floor() + (M.z * 4).floor()).int()  % 2) > 0.5
-        return self.diffuse * checker.double() + self.diffuse2 * (1 - checker.double())
+        return self.diffuse * checker.double() + self.diffuse2 * (1 - checker.double()), checker.to(dtype=torch.int32)
 
 class Light(Sphere):
     def light(self, *args, **kargs):
-        return self.diffuse
+        return self.diffuse, 0
   
 
 def raytrace(args, getRand, O, D, bounce = 0):
@@ -136,13 +145,15 @@ def raytrace(args, getRand, O, D, bounce = 0):
     # scene is a list of Sphere objects (see below)
     # bounce is the number of the bounce, starting at zero for camera rays
     color = rgb(0, 0, 0)
+    ids = -1 + l_zeros(D.x.shape)
     if bounce > args.MAX_BOUNCE:
-        return color
+        return color, ids
 
     distances = [dtype(s.intersect(args, O, D)) for s in args.scene]
     nearest, nearest_idx = tr.min(tr.stack(distances), dim=0)
 
-    for (s, i) in zip(args.scene, range(len(args.scene))):
+    ls = len(args.scene)
+    for (s, i) in zip(args.scene, range(ls)):
         hit = (nearest < args.FARAWAY) & (nearest_idx == i) & (nearest > args.NUDGE) # d == nearest is hacky af
         probStop = args.STOP_PROB if bounce >= 1 and not isinstance(s,Light) else 0
         rd = tri(getRand())
@@ -154,10 +165,11 @@ def raytrace(args, getRand, O, D, bounce = 0):
             Oc = O.extract(hit)
             dc = extract(hit, nearest)
             Dc = D.extract(hit)
-            cc = s.light(args, getNewRand(getRand, hit, i), Oc, Dc, dc, bounce)
+            cc,sid = s.light(args, getNewRand(getRand, hit, i), Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
-
-    return color
+            if bounce <= 1:
+                 ids[hit] = sid * ls + i
+    return color, ids
 
 
 def getNewRand(getRand, mask, curr_idx):
@@ -265,7 +277,7 @@ def multiSamp(args, samp_shape, samp_cast, num_mc_samples):
         tPass = time.time()
 
         mcRand = getMCRand(samp_shape)
-        new_estimate = raytrace(args, mcRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
+        new_estimate = raytrace(args, mcRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0)[0]
         estimate = (new_estimate / float(num_mc_samples))  + estimate
 
         tCurr = time.time()
@@ -299,7 +311,7 @@ def wrap(r):
 def tri(r):
     return 1 - (1 - r.abs().fmod(2)).abs()
 
-def pathtrace(args, S):
+def erpt(args, S):
 
     samp_shape = [args.WIDTH * args.SUBSAMPLE * args.HEIGHT * args.SUBSAMPLE]
     samps_per_pass = product(samp_shape)
@@ -321,6 +333,7 @@ def pathtrace(args, S):
         if restart:
             best_samp = vec3u(0, samp_shape)
             best_samp_params = {}
+            best_id = -1 + l_zeros(samp_shape)
         elif args.mut_restart_freq > 1 and i % args.mut_restart_freq == 1:
             best_samp = vec3u(0, samp_shape)
             best_samp_coords = original_samp_coords
@@ -351,19 +364,23 @@ def pathtrace(args, S):
         tPass = time.time()
         
         
-        new_samp = raytrace(args, getRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
+        new_samp, new_id = raytrace(args, getRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
 
-        accept_var = rand(samp_shape)
-        accept_prob = one_or_div(new_samp.luminance(), best_samp.luminance())
+        filt = ((best_id < 0) | (new_id == best_id)).double()
+        accept_prob = one_or_div(new_samp.luminance(), best_samp.luminance()) * filt
         accept_prob.clamp_(0,1)
 
         addS(args, histogram, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate)* (1 - accept_prob) )
         addS(args, histogram, samp_coords, (new_samp * estimate.luminance() ).div_or(new_samp.luminance(), estimate) * accept_prob)
 
-        should_accept = (accept_var <= accept_prob).double()
-        best_samp_params = mixSamples(samp_shape, should_accept, new_samp_params, best_samp_params)
-        best_samp =           new_samp * should_accept + best_samp * (1 - should_accept)
-        best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
+        accept_var = rand(samp_shape)
+        should_accept = (accept_var <= accept_prob)
+        shouldnt_accept = 1 - should_accept
+        best_samp_params = mixSamples(samp_shape, should_accept.double(), new_samp_params, best_samp_params)
+        
+        best_samp =           new_samp * should_accept.double() + best_samp        * shouldnt_accept.double()
+        best_samp_coords = samp_coords * should_accept.double() + best_samp_coords * shouldnt_accept.double()
+        best_id =               new_id * should_accept.int() + best_id          * shouldnt_accept.int()
 
         #addS(args, histogram, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate))
 
@@ -395,17 +412,17 @@ def render(args):
 
     r = float(args.WIDTH) / args.HEIGHT
     S = (-1., 1. / r + .25, 1., -1. / r + .25)
-    pathtrace(args, S)
+    erpt(args, S)
 
 
 class StaticArgs:
-    SAVE_DIR="tmp2"
+    SAVE_DIR="tmp"
     OVERSAMPLE = 4
 
     SUBSAMPLE = 8
 
-    WIDTH = 500
-    HEIGHT = 500
+    WIDTH = 150
+    HEIGHT = 150
 
     scene = [
         Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
@@ -421,14 +438,14 @@ class StaticArgs:
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 5
+    MAX_BOUNCE = 4
     NUDGE = 0.0000001
     STOP_PROB = 0.8
 
     NEAREST = 0.000000001
     restart_freq = 50
     mut_restart_freq = 25
-    num_mc_samples = 20
-    jump_size = 0.004
+    num_mc_samples = 5
+    jump_size = 0.01
 
 render(StaticArgs)

@@ -50,6 +50,10 @@ else:
     eye = lambda *args, **cargs: torch.eye(*args, **cargs, device = device, dtype=torch.double) 
     use_cuda = False
 
+ub_zeros = lambda *args,**kargs: lzeros(*args,**kargs, dtype=torch.uint8)
+b_zeros = lambda *args,**kargs: lzeros(*args,**kargs, dtype=torch.int8)
+l_zeros = lambda *args,**kargs: lzeros(*args,**kargs, dtype=torch.int32)
+
 def cudify(x):
     if use_cuda:
         return x.cuda(async=True)
