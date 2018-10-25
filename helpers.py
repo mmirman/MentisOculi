@@ -146,7 +146,7 @@ def one_or_div(a,b, o = None):
 
     if o is None:
         o = ones(b.shape)
-    return torch.where(gtz, a / torch.where(gtz, b, o) , o)
+    return torch.where(gtz, a / b , o)
 
 
 def vec3u(x,s):

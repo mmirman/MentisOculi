@@ -28,12 +28,12 @@ def save_img(args, img, nm):
 def getFirstOcc(locs, p):
     is_first = torch.cat([btype([1]), locs[1:] != locs[:-1]])
     is_repeat = 1 - is_first
-    return locs[is_first], p[is_first,:], locs[is_repeat], p[is_repeat,:]
+    return locs[is_first], p[is_first], locs[is_repeat], p[is_repeat]
 
 def addS(args, img, s, p):
     im_locs = s * vec3(args.w, args.h, 0)
 
-    im_locs, im_locs_ind = torch.sort(im_locs.y.long() + im_locs.x.long() * args.h )
+    im_locs, im_locs_ind = torch.sort(im_locs.y.long() + im_locs.x.long() * args.h  )
     p = torch.stack([p.x, p.y, p.z], dim=1)[im_locs_ind]
     
     imger = img.reshape(args.h * args.w, 3)
@@ -297,7 +297,7 @@ def wrap(r):
     return r - r.floor()
 
 def tri(r):
-    return 1 - (1 - r.fmod(2)).abs()
+    return 1 - (1 - r.abs().fmod(2)).abs()
 
 def pathtrace(args, S):
 
@@ -327,7 +327,8 @@ def pathtrace(args, S):
             best_samp_params = original_samp_params
 
         getRand, new_samp_params = getPermuteRand(args, samp_shape, best_samp_params)
-        samp_coords = vec3(tri(getRand()), tri(getRand()), 0)
+
+        samp_coords = vec3(tri(getRand()),tri(getRand()), 0)
 
         samp_cast = vec3(S[0], S[1], 0) + samp_coords * vec3(x_sz, y_sz, 0)
 
@@ -348,22 +349,23 @@ def pathtrace(args, S):
         m += 1
 
         tPass = time.time()
-
+        
+        
         new_samp = raytrace(args, getRand, args.eye, (samp_cast - args.eye).norm(), bounce = 0) 
 
         accept_var = rand(samp_shape)
         accept_prob = one_or_div(new_samp.luminance(), best_samp.luminance())
         accept_prob.clamp_(0,1)
 
-        addS(args, histogram, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate) * (1 - accept_prob) )
-        addS(args, histogram, samp_coords, (new_samp * estimate.luminance()).div_or(new_samp.luminance(), estimate) * accept_prob)
+        addS(args, histogram, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate)* (1 - accept_prob) )
+        addS(args, histogram, samp_coords, (new_samp * estimate.luminance() ).div_or(new_samp.luminance(), estimate) * accept_prob)
 
         should_accept = (accept_var <= accept_prob).double()
         best_samp_params = mixSamples(samp_shape, should_accept, new_samp_params, best_samp_params)
-        best_samp = new_samp * should_accept + best_samp * (1 - should_accept)
+        best_samp =           new_samp * should_accept + best_samp * (1 - should_accept)
         best_samp_coords = samp_coords * should_accept + best_samp_coords * (1 - should_accept)
 
-
+        #addS(args, histogram, best_samp_coords, (best_samp * estimate.luminance()).div_or(best_samp.luminance(), estimate))
         tCurr = time.time()
         pass_time = tCurr - tPass
         total_time += pass_time
@@ -379,7 +381,6 @@ def pathtrace(args, S):
         print("\n\tsamp/sec:", samps_per_pass / pass_time )
         print("\tAvg samp/sec:",  samps_per_pass * m / total_time, "\n")
 
-        #save_img(args, histogram / m, "img"+str(i)+".png")
         save_img(args, histogram / (m * samp_mul), "img.png")
 
 
@@ -407,7 +408,7 @@ class StaticArgs:
 
     scene = [
         #Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
-        Light(vec3(-1.3, 1.7, 0), 0.5, rgb(1, 1, 1)),
+        Light(vec3(-1.3, 1.7, 0.7), 0.5, rgb(1, 1, 1)),
         #Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
         Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.8),
         CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.3, 0.3, 0.8)),
