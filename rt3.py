@@ -18,7 +18,7 @@ def no_repeats(l):
 def save_img(args, img, nm):
     file_nm = os.path.join(args.SAVE_DIR,nm)
     print("\tsaving:", file_nm)
-    img = (img * 2.0 ).clamp(0,1) * 255
+    img = (img * 8.0 ).clamp(0,1) * 255
     img = img.transpose(0,2)
     
     rgb = [Image.fromarray(np.array(c), "F").resize((args.WIDTH, args.HEIGHT), Image.ANTIALIAS).convert("L") for c in img.float()]
@@ -68,26 +68,30 @@ class Sphere:
         b = 2 * D.dot(O - self.c)
         c = abs(self.c) + abs(O) - 2 * self.c.dot(O) - (self.r * self.r)
         disc = (b ** 2) - (4 * c)
-        sq = tr.sqrt(tr.relu(disc))
-        h0 = (-b - sq) / 2
-        h1 = (-b + sq) / 2
+        sq = tr.sqrt(tr.relu(disc)) # can postpone the sqrt here for a speedup
+        b = -b
+        h0 = (b - sq)
+        h1 = (b + sq)
         h = tr.where((h0 > 0) & (h0 < h1), h0, h1)
         pred = (disc > 0) & (h > args.NEAREST)
-        return tr.where(pred, h, ones_like(h) * args.FARAWAY)
+        return tr.where(pred, 0.5 * h, ones_like(h) * args.FARAWAY)
 
     def diffusecolor(self, M):
         return self.diffuse
 
     def sampleDiffuse(self, args, getRand, M, N, newO, bounce):
         rayDiff = random_spherical(getRand(), getRand())
-        should_flip = N.dot(rayDiff).lt(0).double()
-        rayDiff = rayDiff * (1 - 2 * should_flip)
+        nrdiff = N.dot(rayDiff)
+        
+        sflip = 1 - 2 * nrdiff.lt(0).double()
+        rayDiff = rayDiff * sflip
+        nrdiff = nrdiff * sflip
 
-        return raytrace(args, getRand, newO, rayDiff , bounce + 2) * rayDiff.dot(N) * self.diffusecolor(M) * 2 
+        return raytrace(args, getRand, newO, rayDiff , bounce + 1.5) * nrdiff * self.diffusecolor(M) * 2 
 
     def sampleMirror(self, args, getRand, D, N, newO, bounce):
         rayRefl = (D - N * 2 * D.dot(N)).norm()  # reflection            
-        return raytrace(args, getRand, newO, rayRefl, bounce + 1) * self.mirror
+        return raytrace(args, getRand, newO, rayRefl, bounce + 0.5) * self.mirror
 
 
     def light(self, args, getRand, O, D, d, bounce):
@@ -120,7 +124,7 @@ class CheckeredSphere(Sphere):
         self.diffuse2= diffuse2
         super(CheckeredSphere, self).__init__(*args, **kargs)
     def diffusecolor(self, M):
-        checker = ((M.x * 4).int() % 2) == ((M.z * 4).int() % 2)
+        checker = (((M.x * 4).floor() + (M.z * 4).floor()).int()  % 2) > 0.5
         return self.diffuse * checker.double() + self.diffuse2 * (1 - checker.double())
 
 class Light(Sphere):
@@ -141,7 +145,7 @@ def raytrace(args, getRand, O, D, bounce = 0):
 
     for (s, i) in zip(args.scene, range(len(args.scene))):
         hit = (nearest < args.FARAWAY) & (nearest_idx == i) & (nearest > args.NUDGE) # d == nearest is hacky af
-        probStop = args.STOP_PROB if bounce >= 1 else 0
+        probStop = args.STOP_PROB if bounce >= 1 and not isinstance(s,Light) else 0
         rd = tri(getRand())
         rgp = (rd >= probStop)
 
@@ -164,12 +168,10 @@ def getNewRand(getRand, mask, curr_idx):
     def newRand(arg = None):
         if arg is None:
             arg = (mshape, mask, [curr_idx])
-            #pdbAssert(product(mshape) == int(mask.sum(dtype=tr.long)))
         else:
             (sN, hitN, sub_idx) = arg
             maskN = place(mask, hitN)
             arg = (sN, maskN, [curr_idx] + sub_idx)
-            #pdbAssert(product(sN) == int(maskN.sum(dtype=tr.long)))
         return getRand(arg)
     return newRand
 
@@ -181,16 +183,16 @@ def getMCRand(top_shape):
             idx = []
         else:
             maskShape,mask, idx = arg
-            #pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
         return rand(size = maskShape)
     return getRand
 
-def getPermuteRand(top_shape, mcmc_best):
+def getPermuteRand(args, top_shape, mcmc_best):
     mcmc_generator = {}
     num_calls = {}
 
     for k,v in mcmc_best.items():  # save old random values for when new things get mixed in
         mcmc_generator[k] = v
+
     def getRand(arg = None):
             if arg is None:
                 mask = lones(top_shape, dtype=tr.uint8)
@@ -198,7 +200,6 @@ def getPermuteRand(top_shape, mcmc_best):
                 idx = []
             else:
                 maskShape, mask, idx = arg
-                #pdbAssert(product(maskShape) == int(mask.sum(dtype=tr.long)))
             tidx = tuple(idx)    
             
             if tidx not in num_calls:
@@ -209,23 +210,17 @@ def getPermuteRand(top_shape, mcmc_best):
 
             if tidx not in mcmc_best:
                 r = rand(size = maskShape)
-                #pdbAssert(product(r.shape) == product(maskShape))
             else: 
-                # could be done way quicker in handwritten cuda.
-                # sadly, pseudorandoms are slow enough that we want to do as few of them as possible.
-                
                 bestIndxs, bestRand = mcmc_best[tidx]
 
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
                 newRands[mask] = rand(size = maskShape)
 
-                newRands[cudify(bestIndxs)] = bestRand + randn(bestRand.shape) * 0.003
+                newRands[cudify(bestIndxs)] = bestRand + randn(bestRand.shape) * args.jump_size
                 
-                r = newRands[mask].contiguous()
-                #pdbAssert(product(r.shape) == product(maskShape))
+                r = newRands[mask]
 
             ids = mask.nonzero().squeeze(dim=1)
-            #pdbAssert(no_repeats(ids))
             mcmc_generator[tidx] = (ids.cpu(),r)
             return r
     
@@ -260,7 +255,6 @@ def mixSamples(top_shape, mix, sa, sb):
 
             # be wary of what happens when mixing something in which was not there before!
             abMn = abM.nonzero().squeeze(dim=1)
-            #pdbAssert(no_repeats(abMn))
             res[k] = (abMn.cpu(), (aRes * mix + bRes * (1 - mix))[abM])
     return res
 
@@ -322,17 +316,18 @@ def pathtrace(args, S):
     m = 0
     k = 0
 
+    samp_mul = args.SUBSAMPLE * args.SUBSAMPLE / (args.OVERSAMPLE * args.OVERSAMPLE)
     for i in itertools.count(1,1):
         restart = i % args.restart_freq == 1     
         if restart:
             best_samp = vec3u(0, samp_shape)
             best_samp_params = {}
-        elif i % args.mut_restart_freq == 1:
+        elif args.mut_restart_freq > 1 and i % args.mut_restart_freq == 1:
             best_samp = vec3u(0, samp_shape)
             best_samp_coords = original_samp_coords
             best_samp_params = original_samp_params
 
-        getRand, new_samp_params = getPermuteRand(samp_shape, best_samp_params)
+        getRand, new_samp_params = getPermuteRand(args, samp_shape, best_samp_params)
         samp_coords = vec3(tri(getRand()), tri(getRand()), 0)
 
         samp_cast = vec3(S[0], S[1], 0) + samp_coords * vec3(x_sz, y_sz, 0)
@@ -348,7 +343,7 @@ def pathtrace(args, S):
             estimate = multiSamp(args, samp_shape, samp_cast, args.num_mc_samples)
 
             addS(args, mc_histogram, best_samp_coords, estimate)
-            save_img(args, mc_histogram / k, "estimate"+str(k)+".png")
+            save_img(args, mc_histogram / (k * samp_mul), "estimate.png")
             continue
 
         m += 1
@@ -374,19 +369,19 @@ def pathtrace(args, S):
         pass_time = tCurr - tPass
         total_time += pass_time
 
-        print("\n\nPass:", i)
+        print("\n\nPass:", m)
         print("\tElapsed Time:", total_time)
         print("\tPass Time:", pass_time)
-        print("\tAvg Pass Time:",  total_time / i)
+        print("\tAvg Pass Time:",  total_time / m)
 
-        print("\n\tTotal Samples:", samps_per_pass * i)
-        print("\tSamples Per Pixel:", args.OVERSAMPLE * i)
+        print("\n\tTotal Samples:", samps_per_pass * (m + k * args.num_mc_samples) )
+        print("\tSamples Per Pixel:", args.SUBSAMPLE * m)
 
         print("\n\tsamp/sec:", samps_per_pass / pass_time )
-        print("\tAvg samp/sec:",  samps_per_pass * i / total_time, "\n")
+        print("\tAvg samp/sec:",  samps_per_pass * m / total_time, "\n")
 
-        save_img(args, histogram / m, "img"+str(i)+".png")
-        save_img(args, histogram / m, "img.png")
+        #save_img(args, histogram / m, "img"+str(i)+".png")
+        save_img(args, histogram / (m * samp_mul), "img.png")
 
 
 def render(args):
@@ -403,34 +398,36 @@ def render(args):
 
 
 class StaticArgs:
-    SAVE_DIR="tmp"
-    OVERSAMPLE = 1
+    SAVE_DIR="tmp2"
+    OVERSAMPLE = 4
 
-    SUBSAMPLE = 1
+    SUBSAMPLE = 20
 
-    WIDTH = 400
-    HEIGHT = 300
+    WIDTH = 100
+    HEIGHT = 100
 
     scene = [
-        Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
-        Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
-        Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.7),
-        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.9, 0.9, 0.99)),
-        #Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
-        #Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
-        #Sphere(vec3(100000.2, 0, 0), 99999, rgb(0.99, 0.6, 0.6)),
-        #Sphere(vec3(-100000.2, 0, 0), 99999, rgb(0.6, 0.99, 0.6)),
+        #Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
+        Light(vec3(-1.3, 1.7, 0), 0.5, rgb(1, 1, 1)),
+        #Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
+        Sphere(vec3(-.4, .2, 0.8), .4, rgb(1, .8, .9).rgbNorm() * 3 * 0.4, 0.8),
+        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.3, 0.3, 0.8)),
+        Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
+        Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
+        Sphere(vec3(100000.2, 0, 0), 99999, rgb(0.99, 0.6, 0.6)),
+        Sphere(vec3(-100000.2, 0, 0), 99999, rgb(0.6, 0.99, 0.6)),
     ]
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 12
+    MAX_BOUNCE = 3
     NUDGE = 0.0000001
-    STOP_PROB = 0.8
+    STOP_PROB = 0.5
 
-    NEAREST = 0.000000001
-    restart_freq = 40
-    mut_restart_freq = 40
-    num_mc_samples = 20
+    NEAREST = 0.000000002
+    restart_freq = 30
+    mut_restart_freq = 0
+    num_mc_samples = 5
+    jump_size = 0.02 #0.003
 
 render(StaticArgs)
