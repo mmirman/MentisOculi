@@ -440,7 +440,7 @@ class StaticArgs:
     SAVE_DIR="tmp"
     OVERSAMPLE = 2
 
-    SUBSAMPLE = 16
+    SUBSAMPLE = 8
 
     WIDTH = 300
     HEIGHT = 300
@@ -449,8 +449,8 @@ class StaticArgs:
         Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
         #Light(vec3(-1.3, 1.7, 0.7), 0.5, rgb(1, 1, 1)),
         #Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
-        Sphere(vec3(.45, .35, 0.8), 1.2, rgb(0.1, .1, .02), 0.98, semi=vec3(-1, -0.7,0.5), semi_rel = .5),
-        Sphere(vec3(.3, -0.2, 1.3), .3, rgb(0.1, 0.1, 0), rgb(0.7, 1, 1)),
+        Sphere(vec3(.42, .35, 0.8), 1.1, rgb(0.1, .1, .02), 0.98, semi=vec3(-1, -0.7,0.45), semi_rel = .45),
+        Sphere(vec3(.28, -0.2, 1.0), .3, rgb(0.1, 0.1, 0), rgb(0.7, 1, 1)),
         CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.3, 0.3, 0.8)),
         Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
         Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
@@ -465,9 +465,9 @@ class StaticArgs:
     STOP_PROB = 0.9
 
     NEAREST = 0.000000001
-    restart_freq = 50
-    mut_restart_freq = 10
-    num_mc_samples = 10
+    restart_freq = 60
+    mut_restart_freq = 20
+    num_mc_samples = 20
     jump_size = 0.005
 
 render(StaticArgs)
