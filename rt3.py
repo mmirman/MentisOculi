@@ -65,13 +65,13 @@ class Sphere:
         self.mirror = mirror
         
         self.absCmR2 =  abs(self.c) - r * r
-
+        self.c2 = self.c * 2
     def intersect(self, args, O, D):
         b = D.dot(O - self.c)
-        c = self.absCmR2 + abs(O) - 2 * self.c.dot(O)
+        c = self.absCmR2 + abs(O) - self.c2.dot(O)
         disc = b * b - c
         sq = tr.sqrt(tr.relu(disc)) # can postpone the sqrt here for a speedup
-        h = - (b + sq) # no internal reflection
+        h = -(b + sq) # no internal reflection
         pred = (disc > 0) & (h > args.NEAREST)
         return tr.where(pred, h, ones_like(h) * args.FARAWAY)
 
