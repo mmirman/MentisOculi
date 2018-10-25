@@ -74,7 +74,9 @@ class Sphere:
         c = self.absCmR2 + abs(O) - self.c2.dot(O)
         disc = b * b - c
         sq = tr.sqrt(tr.relu(disc)) # can postpone the sqrt here for a speedup
-        h = -(b + sq) # no internal reflection
+        h0 = -b - sq  # dot(O - self.c) < r * r 
+        h1 = -b + sq
+        h = tr.where(h0 > 0, h0, h1)
         pred = (disc > 0) & (h > args.NEAREST)
         return tr.where(pred, h, ones_like(h) * args.FARAWAY)
 
@@ -107,7 +109,7 @@ class Sphere:
         toO = (O - M).norm()                    # direction to ray origin
         newO = M + N * args.NUDGE               # M nudged to avoid itself
 
-        sid = -1 + l_zeros(D.x.shape)
+        sid = l_zeros(D.x.shape)
 
         if self.mirror is not None:
             diffcol = self.diffusecolor(M)[0]
@@ -145,7 +147,7 @@ def raytrace(args, getRand, O, D, bounce = 0):
     # scene is a list of Sphere objects (see below)
     # bounce is the number of the bounce, starting at zero for camera rays
     color = rgb(0, 0, 0)
-    ids = -1 + l_zeros(D.x.shape)
+    ids = l_zeros(D.x.shape)
     if bounce > args.MAX_BOUNCE:
         return color, ids
 
@@ -167,8 +169,8 @@ def raytrace(args, getRand, O, D, bounce = 0):
             Dc = D.extract(hit)
             cc,sid = s.light(args, getNewRand(getRand, hit, i), Oc, Dc, dc, bounce)
             color += cc.place(hit) / (1 - probStop)
-            if bounce <= 1:
-                 ids[hit] = sid * ls + i
+
+            ids[hit] = sid * (ls + 1) + i + 1
     return color, ids
 
 
@@ -197,7 +199,7 @@ def getMCRand(top_shape):
         return rand(size = maskShape)
     return getRand
 
-def getPermuteRand(args, top_shape, mcmc_best):
+def getPermuteRand(should_jump, args, top_shape, mcmc_best):
     mcmc_generator = {}
     num_calls = {}
 
@@ -227,7 +229,7 @@ def getPermuteRand(args, top_shape, mcmc_best):
                 newRands = zeros(top_shape) # if these are different sizes then something went very significantly wrong
                 newRands[mask] = rand(size = maskShape)
 
-                newRands[cudify(bestIndxs)] = cudify(bestRand) + randn(bestRand.shape) * args.jump_size
+                newRands[cudify(bestIndxs)] = (cudify(bestRand) + randn(bestRand.shape) * args.jump_size) if should_jump else cudify(bestRand)
                 
                 r = newRands[mask]
 
@@ -328,18 +330,20 @@ def erpt(args, S):
     k = 0
 
     samp_mul = args.SUBSAMPLE * args.SUBSAMPLE / (args.OVERSAMPLE * args.OVERSAMPLE)
+
+    did_restart = False
     for i in itertools.count(1,1):
         restart = i % args.restart_freq == 1     
-        if restart:
+        if restart or (args.mut_restart_freq > 1 and i % args.mut_restart_freq == 1):
             best_samp = vec3u(0, samp_shape)
-            best_samp_params = {}
             best_id = -1 + l_zeros(samp_shape)
-        elif args.mut_restart_freq > 1 and i % args.mut_restart_freq == 1:
-            best_samp = vec3u(0, samp_shape)
-            best_samp_coords = original_samp_coords
-            best_samp_params = original_samp_params
+            best_samp_params = {}
+            if not restart: # refresh
+                best_samp_coords = original_samp_coords
+                best_samp_params = original_samp_params
+            did_restart = True
 
-        getRand, new_samp_params = getPermuteRand(args, samp_shape, best_samp_params)
+        getRand, new_samp_params = getPermuteRand(not did_restart, args, samp_shape, best_samp_params)
 
         samp_coords = vec3(tri(getRand()),tri(getRand()), 0)
 
@@ -347,6 +351,7 @@ def erpt(args, S):
 
         if restart:
             k += 1
+            did_restart = True
             original_samp_coords = samp_coords
             original_samp_params = new_samp_params
 
@@ -358,6 +363,7 @@ def erpt(args, S):
             addS(args, mc_histogram, best_samp_coords, estimate)
             save_img(args, mc_histogram / (k * samp_mul), "estimate.png")
             continue
+        did_restart = False
 
         m += 1
 
@@ -417,12 +423,12 @@ def render(args):
 
 class StaticArgs:
     SAVE_DIR="tmp"
-    OVERSAMPLE = 4
+    OVERSAMPLE = 2
 
-    SUBSAMPLE = 8
+    SUBSAMPLE = 12
 
-    WIDTH = 150
-    HEIGHT = 150
+    WIDTH = 50
+    HEIGHT = 50
 
     scene = [
         Light(vec3(0, 1.8, 0), 0.5, rgb(1, 1, 1)),
@@ -438,14 +444,14 @@ class StaticArgs:
 
     eye = vec3(0., 0.35, -1.)     # Eye position
     FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 4
+    MAX_BOUNCE = 5
     NUDGE = 0.0000001
     STOP_PROB = 0.8
 
     NEAREST = 0.000000001
     restart_freq = 50
     mut_restart_freq = 25
-    num_mc_samples = 5
+    num_mc_samples = 15
     jump_size = 0.01
 
 render(StaticArgs)
