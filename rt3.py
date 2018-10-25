@@ -63,14 +63,16 @@ class Sphere:
         self.r = r
         self.diffuse = diffuse
         self.mirror = mirror
+        
+        self.absCmR2 =  abs(self.c) - r * r
 
     def intersect(self, args, O, D):
         b = 2 * D.dot(O - self.c)
-        c = abs(self.c) + abs(O) - 2 * self.c.dot(O) - (self.r * self.r)
-        disc = (b ** 2) - (4 * c)
+        c = self.absCmR2 + abs(O) - 2 * self.c.dot(O)
+        disc = (b * b) - (4 * c)
         sq = tr.sqrt(tr.relu(disc)) # can postpone the sqrt here for a speedup
         b = -b
-        h0 = (b - sq)
+        h0 = (b - sq) # no internal reflection
         #h1 = (b + sq)
         h = h0 #b + tr.where(b > sq, sq, -sq)
         pred = (disc > 0) & (h > args.NEAREST)
