@@ -112,6 +112,10 @@ class vec3(object):
     def rgbNorm(self):
         return self * (1 / (self.x + self.y + self.z))
     
+    def cross(self, other):
+        ax,ay,az = self.x, self.y, self.z
+        bx,by,bz = other.x, other.y, other.z
+        return vec3(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx)
 
     def norm(self):
         l = abs(self)

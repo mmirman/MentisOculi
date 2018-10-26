@@ -7,7 +7,6 @@ import time
 import math
 import itertools
 
-
 from functools import reduce
 
 def mulF(a,m):
@@ -61,14 +60,14 @@ def random_spherical(u, v):
     return vec3(x, y, phi.cos())
 
 class Sphere:
-    def __init__(self, center, r, diffuse, mirror = None, semi = None, semi_rel = 0):
+    def __init__(self, center, r, diffuse, mirror = None, semi = None, semi_low = 0, semi_high = 1):
         self.c = center
         self.r = r
         self.diffuse = diffuse
         self.mirror = mirror
 
-        self.semi_rel = semi_rel
-        
+        self.semi_low = semi_low
+        self.semi_high = semi_high
         self.absCmR2 =  abs(self.c) - r * r
         self.inv_r = 1 / self.r
         self.semi = semi.norm() * self.inv_r if semi is not None else None
@@ -85,7 +84,7 @@ class Sphere:
             n0 = (Omc + D * h0).dot(self.semi)
             n1 = (Omc + D * h1).dot(self.semi)
 
-            h = tr.where((h0 > 0) & (n0 >= self.semi_rel), h0, tr.where(n1 >= self.semi_rel, h1, zeros(h1.shape) - 1) )
+            h = tr.where((h0 > 0) & (n0 >= self.semi_low) & (n0 <= self.semi_high), h0, tr.where((n1 >= self.semi_low) & (n1 <= self.semi_high), h1, zeros(h1.shape) - 1) )
         else:
             h = tr.where(h0 > 0, h0, h1)
             
@@ -347,6 +346,13 @@ def erpt(args, S):
     samp_mul = args.SUBSAMPLE * args.SUBSAMPLE / (args.OVERSAMPLE * args.OVERSAMPLE)
 
     did_restart = False
+
+    eye_dir = args.eye.norm() * (-1)
+    x_dir = vec3(0,1,0).cross(eye_dir).norm()
+    y_dir = eye_dir.cross(x_dir).norm()
+        
+    lower_left = (args.eye + eye_dir * args.focal) - x_dir * (x_sz * 0.5) - y_dir * (y_sz * 0.5)
+    
     for i in itertools.count(1,1):
         restart = i % args.restart_freq == 1     
         if restart or (args.mut_restart_freq > 1 and i % args.mut_restart_freq == 1):
@@ -361,8 +367,8 @@ def erpt(args, S):
         getRand, new_samp_params = getPermuteRand(not did_restart, args, samp_shape, best_samp_params)
 
         samp_coords = vec3(tri(getRand()),tri(getRand()), 0)
-
-        samp_cast = vec3(S[0], S[1], 0) + samp_coords * vec3(x_sz, y_sz, 0)
+        
+        samp_cast = lower_left + x_dir * samp_coords.x * x_sz + y_dir * samp_coords.y * y_sz
 
         if restart:
             k += 1
@@ -436,39 +442,4 @@ def render(args):
     erpt(args, S)
 
 
-class StaticArgs:
-    SAVE_DIR="tmp"
-    OVERSAMPLE = 2
 
-    SUBSAMPLE = 10
-
-    WIDTH = 300
-    HEIGHT = 300
-
-    scene = [
-        Light(vec3(0, 2.1, 0.5), 0.4, rgb(1, 1, 1)),
-        #Light(vec3(-1.3, 1.7, 0.7), 0.5, rgb(1, 1, 1)),
-        #Sphere(vec3(.3, .1, 1.3), .6, rgb(0.1, 0.1, 0), rgb(0.9, 0.95, 1)),
-        Sphere(vec3(.42, .35, 0.8), 1.1, rgb(0.1, .1, .02), 0.98, semi=vec3(-1, -0.7,0.45), semi_rel = .45),
-        Sphere(vec3(.3, -0.35, 0.9), .4, rgb(0.0, 0.0, 0), rgb(1, 1, 0.8), semi=vec3(1, 1.5,-0.45), semi_rel = .7),
-        CheckeredSphere(vec3(0,-99999.5, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.3, 0.3, 0.8)),
-        Sphere(vec3(0, 100000.8, 0), 99999, rgb(0.99, 0.99, 0.99)),
-        Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
-        Sphere(vec3(100000.2, 0, 0), 99999, rgb(0.99, 0.6, 0.6)),
-        Sphere(vec3(-100000.2, 0, 0), 99999, rgb(0.6, 0.99, 0.6)),
-    ]
-
-    eye = vec3(0., 0.35, -1.)     # Eye position
-    FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 5
-    NUDGE = 0.0000001
-    STOP_PROB = 0.7
-
-    NEAREST = 0.000000001
-    restart_freq = 60
-    mut_restart_freq = 20
-    num_mc_samples = 20
-    jump_size = 0.006
-
-with torch.no_grad():
-    render(StaticArgs)
