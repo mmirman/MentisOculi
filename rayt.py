@@ -60,7 +60,7 @@ def random_spherical(u, v):
     return vec3(x, y, phi.cos())
 
 class Sphere:
-    def __init__(self, center, r, diffuse, mirror = None, semi = None, semi_low = 0, semi_high = 1):
+    def __init__(self, center, r, diffuse, mirror = None, mir = None, semi = None, semi_low = 0, semi_high = 1):
         self.c = center
         self.r = r
         self.diffuse = diffuse
@@ -72,6 +72,8 @@ class Sphere:
         self.inv_r = 1 / self.r
         self.semi = semi.norm() * self.inv_r if semi is not None else None
         self.c2 = self.c * 2
+        self.mir = 0 if mir is None else mir
+
     def intersect(self, args, O, D):
         Omc = O - self.c
         b = D.dot(Omc)
@@ -111,12 +113,14 @@ class Sphere:
         col, mid = raytrace(args, getRand, newO, rayRefl, bounce + 0.5)
         return col * self.mirror, mid
 
+    def normal(self, D, M):
+        return (M - self.c) * self.inv_r        # normal
 
     def light(self, args, getRand, O, D, d, bounce):
         # D is direction
         # O is previous origin
         M = O + D * d                         # new intersection point
-        N = (M - self.c) * self.inv_r        # normal
+        N = self.normal(D, M)
         if self.semi is not None:
             N = N * (2 * (D.dot(N) < 0).double() - 1)
 
@@ -127,13 +131,13 @@ class Sphere:
 
         if self.mirror is not None:
             diffcol = self.diffusecolor(M)[0]
-            refl_prob = self.mirror / (self.mirror + diffcol.luminance()) if isinstance(self.mirror, numbers.Number) else self.mirror.luminance()
+            refl_prob = self.mir
             reflect = tri(getRand()) <= refl_prob
             diffuse = 1 - reflect
             
-            colorDiff, did = mulF(self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce), 1 / (1 - refl_prob)) if diffuse.any() else (rgb(0,0,0), 0)
+            colorDiff, did = self.sampleDiffuse(args, getNewRand(getRand, diffuse, 0), M.extract(diffuse), N.extract(diffuse), newO.extract(diffuse), bounce) if diffuse.any() else (rgb(0,0,0), 0)
 
-            colorRefl, mid = mulF(self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce), 1 / refl_prob) if reflect.any() else (rgb(0,0,0), 0)
+            colorRefl, mid = self.sampleMirror(args, getNewRand(getRand, reflect, 1), D.extract(reflect), N.extract(reflect), newO.extract(reflect), bounce) if reflect.any() else (rgb(0,0,0), 0)
 
             color = colorDiff.place(diffuse) + colorRefl.place(reflect)
             sid[diffuse] = did * 2
@@ -142,6 +146,44 @@ class Sphere:
             color, sid = self.sampleDiffuse(args, getRand, M, N, newO, bounce)
         return color, sid
 
+
+class Cylinder(Sphere):
+
+    def __init__(self, *args, semi = vec3(0,1,0), **kargs):
+        super(Cylinder, self).__init__(*args, semi=semi, **kargs)
+        self.z = semi.norm()
+        self.y = self.z.cross(vec3(1,0,0)).norm()
+        self.x = self.z.cross(self.y).norm()
+
+    def normal(self, D, M):
+        mc = M - self.c
+        return (mc - self.semi * self.semi.dot(mc)) * self.inv_r        # normal
+
+    def intersect(self, args, O, D):
+        Oc = O - self.c
+        Ot = vec3(self.x.dot(Oc), self.y.dot(Oc), self.z.dot(Oc))
+        Dt = vec3(self.x.dot(D), self.y.dot(D), self.z.dot(D))
+        
+        a = Dt.x * Dt.x + Dt.y * Dt.y
+        nb = -2 * (Ot.x * Dt.x + Ot.y * Dt.y)
+        c = Ot.x * Ot.x + Ot.y * Ot.y - self.r * self.r
+
+        to_sq = nb * nb - 4 * a * c
+
+        sq = tr.sqrt(tr.relu(to_sq)) # cant have sqrt of negative numbers
+        
+        div_a = one_or_div(1, 2 * a)
+
+        small = (nb - sq) * div_a
+        big = (nb + sq) * div_a
+
+        zt = Ot.z + small * Dt.z 
+
+        tm = tr.where((small >= args.NEAREST) & (zt < self.semi_high) & (zt > self.semi_low) , small , big)
+        zt = Ot.z + tm * Dt.z 
+        t = tr.where((a > 0) & (to_sq >= 0) & (zt < self.semi_high) & (zt > self.semi_low) & (tm >= args.NEAREST), tm , ones_like(D.x) * args.FARAWAY)
+        
+        return t
 
 class CheckeredSphere(Sphere):
     def __init__(self,*args, diffuse2 = vec3(0,0,0), **kargs):
@@ -337,8 +379,8 @@ def erpt(args, S):
 
     total_time = 0
 
-    x_sz = (S[2] - S[0])
-    y_sz = (S[3] - S[1])
+    x_sz = (S[2] - S[0]) * args.img_sz
+    y_sz = (S[3] - S[1]) * args.img_sz
 
     m = 0
     k = 0
@@ -347,7 +389,7 @@ def erpt(args, S):
 
     did_restart = False
 
-    eye_dir = args.eye.norm() * (-1)
+    eye_dir = (args.eye - args.eye_focus).norm() * (-1)
     x_dir = vec3(0,1,0).cross(eye_dir).norm()
     y_dir = eye_dir.cross(x_dir).norm()
         
