@@ -121,7 +121,7 @@ def cyl():
     HEIGHT = 400
 
     scene = [
-        Light(vec3(4, 1, -0.8), 0.2, rgb(35, 35, 35)),
+        Light(vec3(4, 1, -0.8), 0.2, rgb(40, 40, 40)),
         Cylinder(vec3(0, 0, 0.2), 0.8, rgb(0.8, 0.3, 0.0), rgb(1, 0.8, 0.4), mir=0.8, semi=vec3(0, 1, 0), semi_low = -0.1, semi_high = 0.2),
         CheckeredSphere(vec3(0,-100000.05, 0), 100000, rgb(.99, .99, .99), diffuse2 = rgb(0.5, 0.5, 0.7)),
         #Sphere(vec3(0, 0, 100001.), 99999, rgb(0.99, 0.99, 0.99)),
@@ -139,7 +139,7 @@ def cyl():
     restart_freq = 60
     mut_restart_freq = 30
     num_mc_samples = 40
-    jump_size = 0.003
+    jump_size = 0.008
 
     focal = 1.5
   return StaticArgs
