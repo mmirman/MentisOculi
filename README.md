@@ -27,4 +27,4 @@ Credits
 -------
 
 * While the code has been significantly morphed, it was originally a fork [James Bowmans' python raytracer](http://www.excamera.com/sphinx/article-ray.html)
-* This was inspired by my ongoing work on secure differentiable programming, i.e. adversarial examples in AI at at the [ETH SRI Lab](https://www.sri.inf.ethz.ch/).  
+* This was inspired by my ongoing work on secure differentiable programming, specifically adversarial examples in neural networks, at the [ETH SRI Lab](https://www.sri.inf.ethz.ch/).  
