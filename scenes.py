@@ -1,8 +1,23 @@
+"""
+   Copyright 2018 Matthew Mirman
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
 from rayt import *
 
 def cornell():
   class StaticArgs:
-    SAVE_DIR="tmp"
+    SAVE_DIR="cornell"
     OVERSAMPLE = 2
 
     SUBSAMPLE = 10
@@ -24,6 +39,7 @@ def cornell():
     ]
 
     eye = vec3(0., 0.35, -1.)     # Eye position
+    img_sz = 1
     FARAWAY = 1.0e36            # an implausibly huge distance
     MAX_BOUNCE = 5
     NUDGE = 0.0000001
@@ -43,76 +59,6 @@ def cornell():
 def ring():
   class StaticArgs:
     SAVE_DIR="ring"
-    OVERSAMPLE = 2
-
-    SUBSAMPLE = 4
-
-    WIDTH = 700
-    HEIGHT = 700
-
-    scene = [
-        Light(vec3(3, 2.5, -0.8), 0.2, rgb(7, 7, 7)),
-        Light(vec3(3, 3, -0.8), 0.2, rgb(7, 7, 7)),
-        Light(vec3(3, 2, -0.8), 0.2, rgb(7, 7, 7)),
-
-        Sphere(vec3(0, 0, 0.2), .6, rgb(0.1, 0.05, 0), rgb(1, 0.9, 0.4), mir=0.99, semi=vec3(0.05, 1,-0.2), semi_low = -.3, semi_high = 0.3),
-        CheckeredSphere(vec3(0,-99999, 0), 99999, rgb(.99, .99, .99), diffuse2 = rgb(0.5, 0.5, 0.7)),
-    ]
-
-    eye = vec3(0, 0.5, -0.75)     # Eye position
-    FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 3
-    NUDGE = 0.0000001
-    STOP_PROB = 0.7
-
-    NEAREST = 0.000000001
-    restart_freq = 60
-    mut_restart_freq = 20
-    num_mc_samples = 20
-    jump_size = 0.006
-    focal = 1
-    eye_focus = vec3(0, 0, 0)     # Eye focus
-  return StaticArgs
-
-
-def doubleRing():
-  class StaticArgs:
-    SAVE_DIR="ring"
-    OVERSAMPLE = 2
-
-    SUBSAMPLE = 6
-
-    WIDTH = 600
-    HEIGHT = 600
-
-    scene = [
-        Light(vec3(3, 3, -0.8), 0.2, rgb(15, 15, 15)),
-
-        Sphere(vec3(0, 0, 0.2), .5, rgb(0.1, 0.05, 0), rgb(1, 0.8, 0.4), mir=0.99, semi=vec3(0.0, 1, 0), semi_low = -1, semi_high = 0.1),
-        Sphere(vec3(0, 0.1, 0.2), .5, rgb(0.1, 0.05, 0), rgb(1, 0.8, 0.4), mir=0.99, semi=vec3(0.0, 1,0), semi_low = -.1, semi_high = 0.1),
-        CheckeredSphere(vec3(0,-100000.05, 0), 100000, rgb(.99, .99, .99), diffuse2 = rgb(0.5, 0.5, 0.7)),
-    ]
-
-    eye = vec3(0.1, 0.8, -0.6)     # Eye position
-    FARAWAY = 1.0e36            # an implausibly huge distance
-    MAX_BOUNCE = 3
-    NUDGE = 0.0000001
-    STOP_PROB = 0.7
-
-    NEAREST = 0.000000001
-    restart_freq = 60
-    mut_restart_freq = 20
-    num_mc_samples = 20
-    jump_size = 0.006
-
-    focal = 1.5
-    eye_focus = vec3(0, 0, 0)     # Eye focus
-  return StaticArgs
-
-
-def cyl():
-  class StaticArgs:
-    SAVE_DIR="cyl"
     OVERSAMPLE = 2
 
     SUBSAMPLE = 8
