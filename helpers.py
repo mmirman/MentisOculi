@@ -18,33 +18,26 @@ import os
 import numbers
 import math
 
-import pdb
-
-def pdbAssert(cond):
-    if not cond:
-        pdb.set_trace()
-
-
 if torch.cuda.is_available() and not 'NOCUDA' in os.environ:
     print("using cuda")
     cuda_async = True
     device = torch.device("cuda")
     use_cuda = True
 
-    dtype = lambda *args, **kargs: torch.cuda.DoubleTensor(*args, **kargs).cuda(async=cuda_async)
-    ltype = lambda *args, **kargs: torch.cuda.LongTensor(*args, **kargs).cuda(async=cuda_async)
-    btype = lambda *args, **kargs: torch.cuda.ByteTensor(*args, **kargs, device=device).cuda(async=cuda_async)
-    ones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
-    lones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device).cuda(async=cuda_async)
-    ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
-    zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
-    lzeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device).cuda(async=cuda_async)
+    dtype = lambda *args, **kargs: torch.cuda.DoubleTensor(*args, **kargs).cuda(non_blocking=cuda_async)
+    ltype = lambda *args, **kargs: torch.cuda.LongTensor(*args, **kargs).cuda(non_blocking=cuda_async)
+    btype = lambda *args, **kargs: torch.cuda.ByteTensor(*args, **kargs, device=device).cuda(non_blocking=cuda_async)
+    ones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device, dtype=torch.double).cuda(non_blocking=cuda_async)
+    lones = lambda *args, **cargs: torch.ones(*args, **cargs, device=device).cuda(non_blocking=cuda_async)
+    ones_like = lambda *args, **cargs: torch.ones_like(*args, **cargs, device=device, dtype=torch.double).cuda(non_blocking=cuda_async)
+    zeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device, dtype=torch.double).cuda(non_blocking=cuda_async)
+    lzeros = lambda *args, **cargs: torch.zeros(*args, **cargs, device=device).cuda(non_blocking=cuda_async)
 
-    eye = lambda *args, **cargs: torch.eye(*args, **cargs, device=device, dtype=torch.double).cuda(async=cuda_async)
-    rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
-    randn = lambda *args, **cargs: torch.randn(*args, **cargs, device = device, dtype=torch.double).cuda(async=cuda_async)
+    eye = lambda *args, **cargs: torch.eye(*args, **cargs, device=device, dtype=torch.double).cuda(non_blocking=cuda_async)
+    rand = lambda *args, **cargs: torch.rand(*args, **cargs, device = device, dtype=torch.double).cuda(non_blocking=cuda_async)
+    randn = lambda *args, **cargs: torch.randn(*args, **cargs, device = device, dtype=torch.double).cuda(non_blocking=cuda_async)
 
-    linspace = lambda *args, **cargs: torch.linspace(*args, **cargs, dtype=torch.double).cuda(async=cuda_async)
+    linspace = lambda *args, **cargs: torch.linspace(*args, **cargs, dtype=torch.double).cuda(non_blocking=cuda_async)
 
     print("set up cuda")
 else:
@@ -71,14 +64,12 @@ l_zeros = lambda *args,**kargs: lzeros(*args,**kargs, dtype=torch.int32)
 
 def cudify(x):
     if use_cuda:
-        return x.cuda(async=True)
+        return x.cuda(non_blocking=True)
     return x
 
 def place(cond, x):
-    #pdbAssert(product(x.shape) == int(cond.sum(dtype=torch.long)))
-    r = cond.new_zeros(size = cond.shape) # TODO:  looks like this is bugging out nondeterministically!
+    r = cond.new_zeros(size = cond.shape)
     r[cond] = x
-    #pdbAssert(int(r.sum(dtype=torch.long)) == int(x.sum(dtype=torch.long)))
     return r
 
 def extract(cond, x):
@@ -159,8 +150,8 @@ class vec3(object):
 
     def div_or(self, b, alt):
         return vec3(one_or_div(self.x, b, alt.x), one_or_div(self.y, b, alt.y), one_or_div(self.z, b, alt.z))
-rgb = vec3
 
+rgb = vec3
 
 def one_or_div(a,b, o = None):
     if isinstance(b, numbers.Number):
